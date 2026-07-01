@@ -20,6 +20,16 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "scheme": "alicemobile",
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Izinkan aplikasi Alice untuk mengakses kamera demi fitur absensi Face Recognition."
+        }
+      ]
+    ]
   }
 }
