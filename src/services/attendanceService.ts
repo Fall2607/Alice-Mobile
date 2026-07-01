@@ -48,5 +48,41 @@ export const attendanceService = {
     } catch (error: any) {
       throw new Error(error.message || 'Terjadi kesalahan jaringan.');
     }
+  },
+
+  // Mendapatkan daftar shift master
+  async getShifts() {
+    try {
+      const response = await fetch(`${API_URL}/shift`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || 'Gagal mengambil data shift');
+      }
+      return data;
+    } catch (error: any) {
+      throw new Error(error.message || 'Terjadi kesalahan jaringan.');
+    }
+  },
+
+  // Mendapatkan pemetaan jadwal karyawan bulan tertentu (format YYYY-MM)
+  async getKaryawanSchedule(karyawanId: string, monthYear: string) {
+    try {
+      const response = await fetch(`${API_URL}/karyawan/${karyawanId}/jadwal-bulanan?month=${monthYear}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || 'Gagal mengambil jadwal karyawan');
+      }
+      return data; // Mengembalikan object { schedule: [...] }
+    } catch (error: any) {
+      throw new Error(error.message || 'Terjadi kesalahan jaringan.');
+    }
   }
 };

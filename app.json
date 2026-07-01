@@ -29,7 +29,8 @@
         {
           "cameraPermission": "Izinkan aplikasi Alice untuk mengakses kamera demi fitur absensi Face Recognition."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ]
   }
 }

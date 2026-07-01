@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { ScanFace, CalendarDays, User } from 'lucide-react-native';
+import { ScanFace, CalendarDays, User, Palmtree, Clock } from 'lucide-react-native';
 
 export default function TabLayout() {
   return (
@@ -42,6 +42,24 @@ export default function TabLayout() {
           title: 'Jadwal',
           tabBarIcon: ({ color, size }) => (
             <CalendarDays color={color} size={size} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="cuti"
+        options={{
+          title: 'Cuti',
+          tabBarIcon: ({ color, size }) => (
+            <Palmtree color={color} size={size} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="lembur"
+        options={{
+          title: 'Lembur',
+          tabBarIcon: ({ color, size }) => (
+            <Clock color={color} size={size} />
           ),
         }}
       />

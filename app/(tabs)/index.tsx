@@ -1,40 +1,50 @@
 import { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, RefreshControl } from 'react-native';
-import { useRouter } from 'expo-router';
-import { Camera, CalendarDays, CheckCircle2 } from 'lucide-react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, RefreshControl, Image } from 'react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
+import { CalendarDays, CheckCircle2, MoreHorizontal, Bell } from 'lucide-react-native';
 import { authService } from '../../src/services/authService';
 import { attendanceService } from '../../src/services/attendanceService';
 
 export default function Home() {
   const router = useRouter();
   const [userName, setUserName] = useState('');
+  const [userRole, setUserRole] = useState('');
   const [userId, setUserId] = useState('');
-  
+
   const [time, setTime] = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
-  
+
   const [todayStatus, setTodayStatus] = useState<{
     jamMasuk: string | null;
     jamKeluar: string | null;
-  }>({ jamMasuk: null, jamKeluar: null });
+    menitTerlambat: number;
+  }>({ jamMasuk: null, jamKeluar: null, menitTerlambat: 0 });
+
+  const [todayShift, setTodayShift] = useState<{ masuk: string, keluar: string } | null>(null);
 
   useEffect(() => {
-    loadData();
-    
     // Timer jam digital
     const timer = setInterval(() => {
       setTime(new Date());
     }, 1000);
-    
+
     return () => clearInterval(timer);
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [])
+  );
 
   const loadData = async () => {
     try {
       const user = await authService.getUser();
       if (user) {
         setUserName(user.name || user.nama || 'Karyawan');
+        setUserRole(user.jabatan || user.role || 'Karyawan');
         setUserId(user.karyawan_id || user.id);
         await fetchAttendanceStatus(user.karyawan_id || user.id);
       }
@@ -48,23 +58,41 @@ export default function Home() {
   const fetchAttendanceStatus = async (kId: string) => {
     try {
       if (!kId) return;
-      const history = await attendanceService.getAbsensiHistory(kId);
-      
+
+      const month = String(new Date().getMonth() + 1).padStart(2, '0');
+      const year = new Date().getFullYear();
+      const monthYear = `${year}-${month}`;
+
+      const [history, scheduleData] = await Promise.all([
+        attendanceService.getAbsensiHistory(kId),
+        attendanceService.getKaryawanSchedule(kId, monthYear).catch(() => ({ schedule: [] }))
+      ]);
+
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      // Set shift info
+      const todaySched = scheduleData.schedule?.find((s: any) => s.date === todayStr);
+      if (todaySched && todaySched.shift && todaySched.shift.jam_masuk) {
+        setTodayShift({
+          masuk: todaySched.shift.jam_masuk.substring(0, 5),
+          keluar: todaySched.shift.jam_keluar.substring(0, 5)
+        });
+      }
+
       // Ambil absensi hari ini jika ada
-      const today = new Date().toISOString().split('T')[0];
       const absensiHariIni = history.find((h: any) => {
-        // Asumsi format tanggal YYYY-MM-DD
         const recordDate = new Date(h.tanggal).toISOString().split('T')[0];
-        return recordDate === today;
+        return recordDate === todayStr;
       });
 
       if (absensiHariIni) {
         setTodayStatus({
           jamMasuk: absensiHariIni.jam_masuk || null,
           jamKeluar: absensiHariIni.jam_keluar || null,
+          menitTerlambat: absensiHariIni.menit_terlambat || 0,
         });
       } else {
-        setTodayStatus({ jamMasuk: null, jamKeluar: null });
+        setTodayStatus({ jamMasuk: null, jamKeluar: null, menitTerlambat: 0 });
       }
     } catch (error) {
       console.log('Gagal ambil status absensi', error);
@@ -83,7 +111,10 @@ export default function Home() {
   };
 
   const formatTime = (date: Date) => {
-    return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const h = String(date.getHours()).padStart(2, '0');
+    const m = String(date.getMinutes()).padStart(2, '0');
+    const s = String(date.getSeconds()).padStart(2, '0');
+    return `${h}:${m}:${s}`;
   };
 
   const formatDate = (date: Date) => {
@@ -95,6 +126,9 @@ export default function Home() {
     // Jika format penuh timestamp (contoh: 2026-07-01T08:00:00.000Z)
     if (timeStr.includes('T')) {
       const dateObj = new Date(timeStr);
+      // Koreksi Timezone: PostgreSQL Vercel sering salah paham menganggap WIB sebagai UTC
+      // Sehingga kita perlu mengurangi 7 jam (WIB = GMT+7) agar tampilannya sesuai.
+      dateObj.setHours(dateObj.getHours() - 7);
       return dateObj.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
     }
     // Jika format HH:MM:SS
@@ -113,82 +147,109 @@ export default function Home() {
   }
 
   return (
-    <ScrollView 
+    <ScrollView
       style={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
-      {/* Header Profile */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Halo,</Text>
-          <Text style={styles.userName}>{userName}</Text>
-        </View>
-      </View>
-
-      {/* Clock Widget */}
-      <View style={styles.clockCard}>
-        <View style={styles.clockHeader}>
-          <CalendarDays color="#0EA5E9" size={20} />
-          <Text style={styles.dateText}>{formatDate(time)}</Text>
-        </View>
-        <Text style={styles.timeText}>{formatTime(time)}</Text>
-        <Text style={styles.timezoneText}>WIB</Text>
-      </View>
-
-      {/* Status Absensi Hari Ini */}
-      <View style={styles.statusContainer}>
-        <Text style={styles.sectionTitle}>Status Hari Ini</Text>
-        <View style={styles.statusRow}>
-          <View style={[styles.statusBox, todayStatus.jamMasuk ? styles.statusBoxActive : null]}>
-            <View style={styles.statusIconWrap}>
-              <CheckCircle2 color={todayStatus.jamMasuk ? "#10B981" : "#94A3B8"} size={24} />
+      <View style={styles.topBackground}>
+        {/* Top Navigation Bar */}
+        <View style={styles.topNav}>
+          <View style={styles.userInfoRow}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{userName.charAt(0).toUpperCase()}</Text>
             </View>
-            <Text style={styles.statusLabel}>Masuk</Text>
-            <Text style={[styles.statusValue, todayStatus.jamMasuk ? styles.statusValueActive : null]}>
-              {extractTime(todayStatus.jamMasuk)}
-            </Text>
-          </View>
-          <View style={[styles.statusBox, todayStatus.jamKeluar ? styles.statusBoxActive : null]}>
-            <View style={styles.statusIconWrap}>
-              <CheckCircle2 color={todayStatus.jamKeluar ? "#F59E0B" : "#94A3B8"} size={24} />
+            <View>
+              <Text style={styles.navUserName}>{userName}</Text>
+              <Text style={styles.navUserRole}>{userRole}</Text>
             </View>
-            <Text style={styles.statusLabel}>Pulang</Text>
-            <Text style={[styles.statusValue, todayStatus.jamKeluar ? styles.statusValueActive : null]}>
-              {extractTime(todayStatus.jamKeluar)}
-            </Text>
           </View>
+          <TouchableOpacity style={styles.bellBtn}>
+            <Bell color="#0EA5E9" size={24} />
+            <View style={styles.bellBadge} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Center Greeting */}
+        <View style={styles.greetingCenterContainer}>
+          <Text style={styles.greetingCenterText}>
+            Hallo 👋 <Text style={styles.greetingCenterName}>{userName.split(' ')[0]}</Text>
+          </Text>
+          <Text style={styles.greetingCenterSub}>Semangat kerja ya!</Text>
         </View>
       </View>
 
-      {/* Action Buttons */}
-      <Text style={styles.sectionTitle}>Menu Absensi</Text>
-      <View style={styles.actionContainer}>
-        <TouchableOpacity 
-          style={[styles.actionBtn, styles.btnIn]} 
-          onPress={() => goToCamera('in')}
-          activeOpacity={0.8}
-        >
-          <View style={styles.btnIconWrap}>
-            <Camera color="#FFF" size={32} />
+      <View style={styles.bottomContentTray}>
+        {/* Main Dashboard Card */}
+        <View style={styles.dashboardCard}>
+          <View style={styles.cardHeaderRow}>
+            <View>
+              <Text style={styles.cardTimeText}>{formatTime(time)} <Text style={styles.cardTimeWib}>WIB</Text></Text>
+              {todayShift ? (
+                <Text style={styles.cardDateText}>Jam kerja kamu pukul {todayShift.masuk} - {todayShift.keluar} WIB</Text>
+              ) : (
+                <Text style={styles.cardDateText}>{formatDate(time)}</Text>
+              )}
+            </View>
+            <TouchableOpacity>
+              <MoreHorizontal color="#94A3B8" size={24} />
+            </TouchableOpacity>
           </View>
-          <Text style={styles.actionBtnTitle}>Check-In</Text>
-          <Text style={styles.actionBtnDesc}>Absen Masuk Kerja</Text>
-        </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={[styles.actionBtn, styles.btnOut]} 
-          onPress={() => goToCamera('out')}
-          activeOpacity={0.8}
-        >
-          <View style={styles.btnIconWrap}>
-            <Camera color="#FFF" size={32} />
+          <View style={styles.actionRowPrimary}>
+            <TouchableOpacity
+              style={[styles.btnAction, !todayStatus.jamMasuk ? styles.btnActive : styles.btnInactive]}
+              onPress={() => goToCamera('in')}
+              activeOpacity={0.8}
+              disabled={!!todayStatus.jamMasuk}
+            >
+              <Text style={!todayStatus.jamMasuk ? styles.btnTextActive : styles.btnTextInactive}>Masuk</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.btnAction, todayStatus.jamMasuk && !todayStatus.jamKeluar ? styles.btnActive : styles.btnInactive]}
+              onPress={() => goToCamera('out')}
+              activeOpacity={0.8}
+              disabled={!todayStatus.jamMasuk || !!todayStatus.jamKeluar}
+            >
+              <Text style={todayStatus.jamMasuk && !todayStatus.jamKeluar ? styles.btnTextActive : styles.btnTextInactive}>Keluar</Text>
+            </TouchableOpacity>
           </View>
-          <Text style={styles.actionBtnTitle}>Check-Out</Text>
-          <Text style={styles.actionBtnDesc}>Absen Pulang Kerja</Text>
-        </TouchableOpacity>
+        </View>
+
+        {/* Status Absensi Hari Ini */}
+        <View style={styles.statusContainer}>
+          <Text style={styles.sectionTitle}>Status Hari Ini</Text>
+          <View style={styles.statusRow}>
+            {/* Check-In */}
+            <View style={[styles.statusBox, todayStatus.jamMasuk ? styles.statusBoxActive : null]}>
+              <Text style={styles.statusLabel}>Check-In</Text>
+              <View style={styles.statusValRow}>
+                {todayStatus.jamMasuk && (
+                  <View style={[styles.statusDot, { backgroundColor: todayStatus.menitTerlambat > 0 ? '#D97706' : '#10B981' }]} />
+                )}
+                <Text style={[styles.statusValue, todayStatus.jamMasuk ? styles.statusValueActive : null]}>
+                  {extractTime(todayStatus.jamMasuk)}
+                </Text>
+              </View>
+            </View>
+
+            {/* Check-Out */}
+            <View style={[styles.statusBox, todayStatus.jamKeluar ? styles.statusBoxActive : null]}>
+              <Text style={styles.statusLabel}>Check-Out</Text>
+              <View style={styles.statusValRow}>
+                {todayStatus.jamKeluar && (
+                  <View style={[styles.statusDot, { backgroundColor: '#10B981' }]} />
+                )}
+                <Text style={[styles.statusValue, todayStatus.jamKeluar ? styles.statusValueActive : null]}>
+                  {extractTime(todayStatus.jamKeluar)}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        <View style={{ height: 40 }} />
       </View>
-
-      <View style={{ height: 40 }} />
     </ScrollView>
   );
 }
@@ -196,69 +257,161 @@ export default function Home() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC', // Slate 50
-    padding: 24,
+    backgroundColor: '#FFFFFF',
   },
-  header: {
+  topBackground: {
+    backgroundColor: '#F0F9FF', // Light blue background block
+    paddingHorizontal: 24,
+    paddingTop: 45, // Increased to avoid iPhone notch/status bar
+    paddingBottom: 80, // Extra space so the tray can overlap nicely
+  },
+  bottomContentTray: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 36,
+    borderTopRightRadius: 36,
+    marginTop: -40, // The TRAY overlaps the blue background
+    paddingHorizontal: 24,
+    paddingTop: 24, // The gap/padding above the card!
+    paddingBottom: 40,
+    minHeight: 500, // ensure it covers the bottom
+  },
+  topNav: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 30,
+    marginBottom: 20,
   },
-  greeting: {
-    fontSize: 16,
-    color: '#64748B', // Slate 500
-    marginBottom: 4,
+  userInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  userName: {
-    fontSize: 24,
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  avatarText: {
+    fontSize: 18,
     fontWeight: '800',
-    color: '#0F172A', // Slate 900
+    color: '#0EA5E9',
   },
-  logoutBtn: {
-    padding: 12,
-    backgroundColor: '#FEE2E2', // Red 100
-    borderRadius: 16,
+  navUserName: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0F172A',
   },
-  clockCard: {
+  navUserRole: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  bellBtn: {
+    padding: 8,
+    position: 'relative',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 10,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#EF4444',
+    borderWidth: 1,
+    borderColor: '#FFFFFF',
+  },
+  greetingCenterContainer: {
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  greetingCenterText: {
+    fontSize: 28,
+    color: '#0F172A',
+    fontWeight: '500',
+  },
+  greetingCenterName: {
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  greetingCenterSub: {
+    fontSize: 15,
+    color: '#64748B',
+    marginTop: 8,
+    fontWeight: '500',
+  },
+  dashboardCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 24,
-    alignItems: 'center',
     marginBottom: 30,
-    shadowColor: '#0EA5E9',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 5,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#F1F5F9', // optional subtle border to help it pop against the white tray
   },
-  clockHeader: {
+  cardHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0F9FF', // Sky 50
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginBottom: 16,
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 24,
   },
-  dateText: {
-    marginLeft: 8,
-    color: '#0284C7', // Sky 600
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  timeText: {
-    fontSize: 48,
+  cardTimeText: {
+    fontSize: 28,
     fontWeight: '900',
     color: '#0F172A',
-    letterSpacing: 2,
+    letterSpacing: -0.5,
   },
-  timezoneText: {
+  cardTimeWib: {
     fontSize: 14,
-    color: '#94A3B8',
-    fontWeight: '600',
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  cardDateText: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '500',
     marginTop: 4,
+  },
+  actionRowPrimary: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  btnAction: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnActive: {
+    backgroundColor: '#007AFF', // Blue like mockup
+    borderWidth: 1,
+    borderColor: '#007AFF',
+  },
+  btnInactive: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  btnTextActive: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  btnTextInactive: {
+    color: '#64748B',
+    fontSize: 15,
+    fontWeight: '700',
   },
   sectionTitle: {
     fontSize: 18,
@@ -267,7 +420,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   statusContainer: {
-    marginBottom: 30,
+    marginBottom: 20,
   },
   statusRow: {
     flexDirection: 'row',
@@ -277,67 +430,37 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
     padding: 16,
-    borderRadius: 20,
+    borderRadius: 16,
     marginHorizontal: 4,
-    alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   statusBoxActive: {
-    borderColor: '#10B981',
-    backgroundColor: '#ECFDF5',
+    borderColor: '#E2E8F0', // keep simple white look
   },
-  statusIconWrap: {
-    marginBottom: 8,
+  statusValRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
   },
   statusLabel: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#64748B',
-    marginBottom: 4,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    fontWeight: '700',
   },
   statusValue: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     color: '#94A3B8',
   },
   statusValueActive: {
     color: '#0F172A',
-  },
-  actionContainer: {
-    gap: 16,
-  },
-  actionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 24,
-    borderRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 5,
-  },
-  btnIn: {
-    backgroundColor: '#10B981', // Emerald 500
-  },
-  btnOut: {
-    backgroundColor: '#EF4444', // Red 500
-  },
-  btnIconWrap: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    padding: 16,
-    borderRadius: 20,
-    marginRight: 20,
-  },
-  actionBtnTitle: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '800',
-    marginBottom: 4,
-  },
-  actionBtnDesc: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 14,
-    fontWeight: '500',
   }
 });
