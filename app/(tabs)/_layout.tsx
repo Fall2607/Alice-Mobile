@@ -1,7 +1,10 @@
 import { Tabs } from 'expo-router';
 import { ScanFace, CalendarDays, User, Palmtree, Clock } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Platform } from 'react-native';
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
   return (
     <Tabs
       screenOptions={{
@@ -12,8 +15,8 @@ export default function TabLayout() {
           backgroundColor: '#FFFFFF',
           borderTopWidth: 1,
           borderTopColor: '#F1F5F9',
-          height: 65,
-          paddingBottom: 10,
+          height: Platform.OS === 'android' ? 70 + insets.bottom : 85,
+          paddingBottom: Platform.OS === 'android' ? 10 + insets.bottom : 25,
           paddingTop: 10,
           elevation: 10,
           shadowColor: '#000',

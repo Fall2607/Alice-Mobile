@@ -147,7 +147,7 @@ export default function CameraScreen() {
       Alert.alert(
         'Absensi Berhasil',
         result.message || `Anda berhasil Check-${type === 'in' ? 'In' : 'Out'}.`,
-        [{ text: 'OK', onPress: () => router.back() }]
+        [{ text: 'OK', onPress: () => router.replace('/') }]
       );
     } catch (error: any) {
       setLoading(false);
