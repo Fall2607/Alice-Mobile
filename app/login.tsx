@@ -10,7 +10,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   TouchableWithoutFeedback,
-  Keyboard
+  Keyboard,
+  Image
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { authService } from '../src/services/authService';
@@ -49,10 +50,12 @@ export default function Login() {
         <View style={styles.inner}>
           
           <View style={styles.header}>
-            <View style={styles.logoPlaceholder}>
-              <Text style={styles.logoText}>A</Text>
-            </View>
-            <Text style={styles.title}>Alice Mobile</Text>
+            <Image 
+              source={require('../assets/alice.png')} 
+              style={styles.logoImage} 
+              resizeMode="contain" 
+            />
+            <Text style={styles.title}>Alice</Text>
             <Text style={styles.subtitle}>Sistem Absensi Karyawan</Text>
           </View>
 
@@ -122,24 +125,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 40,
   },
-  logoPlaceholder: {
-    width: 72,
-    height: 72,
-    backgroundColor: '#0EA5E9', // Sky 500
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
+  logoImage: {
+    width: 80,
+    height: 80,
     marginBottom: 16,
-    shadowColor: '#0EA5E9',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  logoText: {
-    color: '#FFFFFF',
-    fontSize: 40,
-    fontWeight: '900',
+    borderRadius: 20,
   },
   title: {
     fontSize: 28,
