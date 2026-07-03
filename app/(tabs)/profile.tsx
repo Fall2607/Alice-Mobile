@@ -1,13 +1,19 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, ActivityIndicator, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
-import { User, LogOut, Settings, ShieldCheck } from 'lucide-react-native';
+import { User, LogOut, Settings, ShieldCheck, FileText, X } from 'lucide-react-native';
 import { authService } from '../../src/services/authService';
+import { attendanceService } from '../../src/services/attendanceService';
 
 export default function Profile() {
   const router = useRouter();
   const [userName, setUserName] = useState('');
   const [role, setRole] = useState('');
+  const [userId, setUserId] = useState('');
+
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [karyawanDetail, setKaryawanDetail] = useState<any>(null);
 
   useEffect(() => {
     loadUser();
@@ -18,6 +24,22 @@ export default function Profile() {
     if (user) {
       setUserName(user.name || user.nama || 'Karyawan');
       setRole(user.role || 'Staf');
+      setUserId(user.karyawan_id || user.id);
+    }
+  };
+
+  const handleShowDetail = async () => {
+    setDetailVisible(true);
+    if (!karyawanDetail) {
+      setDetailLoading(true);
+      try {
+        const detail = await attendanceService.getKaryawanDetail(userId);
+        setKaryawanDetail(detail);
+      } catch (e) {
+        console.log("Error fetch detail:", e);
+      } finally {
+        setDetailLoading(false);
+      }
     }
   };
 
@@ -39,6 +61,13 @@ export default function Profile() {
 
       {/* Menu Options */}
       <View style={styles.menuContainer}>
+        <TouchableOpacity style={styles.menuItem} onPress={handleShowDetail} activeOpacity={0.7}>
+          <View style={[styles.menuIconWrap, { backgroundColor: '#F0FDF4' }]}>
+            <FileText size={20} color="#10B981" />
+          </View>
+          <Text style={styles.menuText}>Detail Data Diri</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
           <View style={styles.menuIconWrap}>
             <Settings size={20} color="#0EA5E9" />
@@ -60,9 +89,55 @@ export default function Profile() {
           <Text style={[styles.menuText, { color: '#EF4444' }]}>Keluar Aplikasi</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Modal Detail Karyawan */}
+      <Modal visible={detailVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Informasi Data Diri</Text>
+              <TouchableOpacity onPress={() => setDetailVisible(false)} style={styles.closeBtn}>
+                <X size={24} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+            
+            {detailLoading ? (
+              <View style={styles.loaderContainer}>
+                <ActivityIndicator size="large" color="#0EA5E9" />
+              </View>
+            ) : karyawanDetail ? (
+              <ScrollView style={styles.modalBody}>
+                <View style={styles.detailCard}>
+                  <DetailRow label="Nama Lengkap" value={karyawanDetail.nama_lengkap} />
+                  <DetailRow label="NIP" value={karyawanDetail.nip} />
+                  <DetailRow label="NIK" value={karyawanDetail.nik} />
+                  <DetailRow label="Departemen" value={karyawanDetail.nama_departemen || '-'} />
+                  <DetailRow label="Level Jabatan" value={karyawanDetail.nama_level || '-'} />
+                  <DetailRow label="Status" value={karyawanDetail.status_kepegawaian || '-'} />
+                  <DetailRow label="Email" value={karyawanDetail.email || '-'} />
+                  <DetailRow label="No. Handphone" value={karyawanDetail.handphone || '-'} />
+                  <DetailRow label="Atasan" value={karyawanDetail.nama_atasan || '-'} />
+                  <DetailRow label="Tanggal Masuk" value={karyawanDetail.tanggal_masuk ? new Date(karyawanDetail.tanggal_masuk).toLocaleDateString('id-ID') : '-'} />
+                </View>
+              </ScrollView>
+            ) : (
+              <View style={styles.loaderContainer}>
+                <Text style={{color: '#64748B'}}>Gagal memuat data.</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
+
+const DetailRow = ({ label, value }: { label: string; value: string }) => (
+  <View style={styles.detailRow}>
+    <Text style={styles.detailLabel}>{label}</Text>
+    <Text style={styles.detailValue}>{value}</Text>
+  </View>
+);
 
 const styles = StyleSheet.create({
   container: {
@@ -139,5 +214,76 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#1E293B',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#F8FAFC',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    height: '85%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  closeBtn: {
+    padding: 4,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 20,
+  },
+  modalBody: {
+    padding: 24,
+  },
+  loaderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  detailCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+    marginBottom: 40,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  detailLabel: {
+    fontSize: 14,
+    color: '#64748B',
+    fontWeight: '500',
+    flex: 1,
+  },
+  detailValue: {
+    fontSize: 14,
+    color: '#0F172A',
+    fontWeight: '700',
+    flex: 1,
+    textAlign: 'right',
   }
 });

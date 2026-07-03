@@ -149,41 +149,6 @@ export default function LemburScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Dummy History */}
-          <View style={styles.historyContainer}>
-            <Text style={styles.sectionTitle}>Riwayat Lembur</Text>
-            
-            <View style={styles.historyCard}>
-              <View style={styles.historyHeader}>
-                <View style={styles.badgeApproved}>
-                  <Text style={styles.badgeTextApproved}>Approved</Text>
-                </View>
-                <Text style={styles.historyDate}>28 Jun 2026</Text>
-              </View>
-              <View style={styles.historyBody}>
-                <Text style={styles.historyType}>Setup Server Backend</Text>
-                <View style={styles.timeWrap}>
-                  <Text style={styles.historyTime}>18:00 - 22:00 <Text style={styles.historyHours}>(4 Jam)</Text></Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.historyCard}>
-              <View style={styles.historyHeader}>
-                <View style={styles.badgePending}>
-                  <Text style={styles.badgeTextPending}>Pending</Text>
-                </View>
-                <Text style={styles.historyDate}>01 Jul 2026</Text>
-              </View>
-              <View style={styles.historyBody}>
-                <Text style={styles.historyType}>Maintanance Database</Text>
-                <View style={styles.timeWrap}>
-                  <Text style={styles.historyTime}>17:00 - 19:30 <Text style={styles.historyHours}>(2.5 Jam)</Text></Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
           <View style={{ height: 40 }} />
         </View>
       </ScrollView>

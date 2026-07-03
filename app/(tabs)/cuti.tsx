@@ -131,32 +131,6 @@ export default function CutiScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Dummy History */}
-          <View style={styles.historyContainer}>
-            <Text style={styles.sectionTitle}>Riwayat Cuti</Text>
-            <View style={styles.historyCard}>
-              <View style={styles.historyHeader}>
-                <View style={styles.badgeApproved}>
-                  <Text style={styles.badgeTextApproved}>Approved</Text>
-                </View>
-                <Text style={styles.historyDate}>12 Apr - 14 Apr</Text>
-              </View>
-              <Text style={styles.historyType}>Cuti Tahunan</Text>
-              <Text style={styles.historyReason}>Pulang kampung untuk acara keluarga</Text>
-            </View>
-
-            <View style={styles.historyCard}>
-              <View style={styles.historyHeader}>
-                <View style={styles.badgePending}>
-                  <Text style={styles.badgeTextPending}>Pending</Text>
-                </View>
-                <Text style={styles.historyDate}>20 Jun - 21 Jun</Text>
-              </View>
-              <Text style={styles.historyType}>Cuti Sakit</Text>
-              <Text style={styles.historyReason}>Checkup medis ke rumah sakit</Text>
-            </View>
-          </View>
-
           <View style={{ height: 40 }} />
         </View>
       </ScrollView>

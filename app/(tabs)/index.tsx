@@ -140,8 +140,34 @@ export default function Home() {
 
   if (loading) {
     return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color="#0EA5E9" />
+      <View style={styles.container}>
+        <View style={[styles.topBackground, { opacity: 0.7 }]}>
+          <View style={styles.topNav}>
+            <View style={styles.userInfoRow}>
+              <View style={[styles.avatar, { backgroundColor: 'rgba(255,255,255,0.3)' }]} />
+              <View>
+                <View style={{ width: 120, height: 18, backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 4, marginBottom: 8 }} />
+                <View style={{ width: 80, height: 12, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 4 }} />
+              </View>
+            </View>
+          </View>
+          <View style={styles.greetingCenterContainer}>
+             <View style={{ width: 160, height: 24, backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 4, alignSelf: 'center', marginBottom: 10 }} />
+             <View style={{ width: 100, height: 14, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 4, alignSelf: 'center' }} />
+          </View>
+        </View>
+        <View style={styles.bottomContentTray}>
+           <View style={[styles.dashboardCard, { opacity: 0.5 }]}>
+              <View style={{ width: '100%', height: 120, backgroundColor: '#E2E8F0', borderRadius: 16 }} />
+           </View>
+           <View style={[styles.statusContainer, { opacity: 0.5, marginTop: 24 }]}>
+              <View style={{ width: 120, height: 16, backgroundColor: '#E2E8F0', borderRadius: 4, marginBottom: 16 }} />
+              <View style={styles.statusRow}>
+                <View style={[styles.statusBox, { backgroundColor: '#F8FAFC' }]} />
+                <View style={[styles.statusBox, { backgroundColor: '#F8FAFC' }]} />
+              </View>
+           </View>
+        </View>
       </View>
     );
   }
@@ -154,7 +180,7 @@ export default function Home() {
       <View style={styles.topBackground}>
         {/* Top Navigation Bar */}
         <View style={styles.topNav}>
-          <View style={styles.userInfoRow}>
+          <TouchableOpacity style={styles.userInfoRow} onPress={() => router.navigate('/profile')} activeOpacity={0.7}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>{userName.charAt(0).toUpperCase()}</Text>
             </View>
@@ -162,7 +188,7 @@ export default function Home() {
               <Text style={styles.navUserName}>{userName}</Text>
               <Text style={styles.navUserRole}>{userRole}</Text>
             </View>
-          </View>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.bellBtn}>
             <Bell color="#0EA5E9" size={24} />
             <View style={styles.bellBadge} />

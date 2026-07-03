@@ -84,5 +84,23 @@ export const attendanceService = {
     } catch (error: any) {
       throw new Error(error.message || 'Terjadi kesalahan jaringan.');
     }
+  },
+
+  // Mendapatkan detail karyawan (termasuk kelengkapan profil)
+  async getKaryawanDetail(karyawanId: string) {
+    try {
+      const response = await fetch(`${API_URL}/karyawan/${karyawanId}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || 'Gagal mengambil data karyawan');
+      }
+      return data;
+    } catch (error: any) {
+      throw new Error(error.message || 'Terjadi kesalahan jaringan.');
+    }
   }
 };
