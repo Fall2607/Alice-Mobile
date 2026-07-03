@@ -15,13 +15,18 @@ export default function Home() {
 
   const [time, setTime] = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // Jika ada parameter absen baru, langsung lewati loading
+  const [loading, setLoading] = useState(!(newAbsenType && newAbsenTime));
 
   const [todayStatus, setTodayStatus] = useState<{
     jamMasuk: string | null;
     jamKeluar: string | null;
     menitTerlambat: number;
-  }>({ jamMasuk: null, jamKeluar: null, menitTerlambat: 0 });
+  }>({ 
+    jamMasuk: newAbsenType === 'in' ? (newAbsenTime as string) : null, 
+    jamKeluar: newAbsenType === 'out' ? (newAbsenTime as string) : null, 
+    menitTerlambat: 0 
+  });
 
   const [todayShift, setTodayShift] = useState<{ masuk: string, keluar: string } | null>(null);
 
@@ -36,16 +41,6 @@ export default function Home() {
 
   useFocusEffect(
     useCallback(() => {
-      if (newAbsenType && newAbsenTime) {
-        // Optimistic Update: Langsung pasang hasil absen dari halaman kamera tanpa nunggu server
-        setTodayStatus(prev => ({
-          ...prev,
-          jamMasuk: newAbsenType === 'in' ? (newAbsenTime as string) : prev.jamMasuk,
-          jamKeluar: newAbsenType === 'out' ? (newAbsenTime as string) : prev.jamKeluar,
-        }));
-        // Hilangkan loading karena kita sudah punya data optimis
-        setLoading(false);
-      }
       loadData();
     }, [newAbsenType, newAbsenTime])
   );
