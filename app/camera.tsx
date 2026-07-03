@@ -148,7 +148,7 @@ export default function CameraScreen() {
       Alert.alert(
         'Absensi Berhasil',
         result.message || `Anda berhasil Check-${type === 'in' ? 'In' : 'Out'}.`,
-        [{ text: 'OK', onPress: () => router.replace('/') }]
+        [{ text: 'OK', onPress: () => router.replace({ pathname: '/', params: { newAbsenType: type, newAbsenTime: result.user?.waktu } }) }]
       );
     } catch (error: any) {
       setLoading(false);

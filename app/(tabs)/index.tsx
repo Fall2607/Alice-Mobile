@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, RefreshControl, Image } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback } from 'react';
 import { CalendarDays, CheckCircle2, MoreHorizontal, Bell } from 'lucide-react-native';
 import { authService } from '../../src/services/authService';
@@ -8,6 +8,7 @@ import { attendanceService } from '../../src/services/attendanceService';
 
 export default function Home() {
   const router = useRouter();
+  const { newAbsenType, newAbsenTime } = useLocalSearchParams();
   const [userName, setUserName] = useState('');
   const [userRole, setUserRole] = useState('');
   const [userId, setUserId] = useState('');
@@ -35,8 +36,20 @@ export default function Home() {
 
   useFocusEffect(
     useCallback(() => {
+      if (newAbsenType && newAbsenTime) {
+        // Optimistic Update: Langsung pasang hasil absen dari halaman kamera tanpa nunggu server
+        setTodayStatus(prev => ({
+          ...prev,
+          jamMasuk: newAbsenType === 'in' ? (newAbsenTime as string) : prev.jamMasuk,
+          jamKeluar: newAbsenType === 'out' ? (newAbsenTime as string) : prev.jamKeluar,
+        }));
+        // Hilangkan loading karena kita sudah punya data optimis
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
       loadData();
-    }, [])
+    }, [newAbsenType, newAbsenTime])
   );
 
   const loadData = async () => {
