@@ -8,7 +8,7 @@ import { attendanceService } from '../../src/services/attendanceService';
 
 export default function Home() {
   const router = useRouter();
-  const { newAbsenType, newAbsenTime } = useLocalSearchParams();
+  const { newAbsenType, newAbsenTime, existingMasuk } = useLocalSearchParams();
   const [userName, setUserName] = useState('');
   const [userRole, setUserRole] = useState('');
   const [userId, setUserId] = useState('');
@@ -23,7 +23,7 @@ export default function Home() {
     jamKeluar: string | null;
     menitTerlambat: number;
   }>({ 
-    jamMasuk: newAbsenType === 'in' ? (newAbsenTime as string) : null, 
+    jamMasuk: newAbsenType === 'in' ? (newAbsenTime as string) : (existingMasuk as string || null), 
     jamKeluar: newAbsenType === 'out' ? (newAbsenTime as string) : null, 
     menitTerlambat: 0 
   });
@@ -113,7 +113,7 @@ export default function Home() {
 
 
   const goToCamera = (type: 'in' | 'out') => {
-    router.push({ pathname: '/camera', params: { type } });
+    router.push({ pathname: '/camera', params: { type, existingMasuk: todayStatus.jamMasuk } });
   };
 
   const formatTime = (date: Date) => {

@@ -66,7 +66,7 @@ const faceApiHtml = `
 
 export default function CameraScreen() {
   const router = useRouter();
-  const { type } = useLocalSearchParams(); // 'in' atau 'out'
+  const { type, existingMasuk } = useLocalSearchParams(); // 'in' atau 'out'
   const [permission, requestPermission] = useCameraPermissions();
   
   const [loading, setLoading] = useState(false);
@@ -148,7 +148,7 @@ export default function CameraScreen() {
       Alert.alert(
         'Absensi Berhasil',
         result.message || `Anda berhasil Check-${type === 'in' ? 'In' : 'Out'}.`,
-        [{ text: 'OK', onPress: () => router.replace({ pathname: '/(tabs)', params: { newAbsenType: type, newAbsenTime: result.user?.waktu } }) }]
+        [{ text: 'OK', onPress: () => router.replace({ pathname: '/(tabs)', params: { newAbsenType: type, newAbsenTime: result.user?.waktu, existingMasuk } }) }]
       );
     } catch (error: any) {
       setLoading(false);
