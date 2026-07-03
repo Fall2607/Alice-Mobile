@@ -45,8 +45,6 @@ export default function Home() {
         }));
         // Hilangkan loading karena kita sudah punya data optimis
         setLoading(false);
-      } else {
-        setLoading(true);
       }
       loadData();
     }, [newAbsenType, newAbsenTime])
