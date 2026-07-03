@@ -144,6 +144,14 @@ export default function Home() {
     return timeStr;
   };
 
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#0EA5E9" />
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       style={styles.container}
