@@ -129,7 +129,8 @@ export default function CameraScreen() {
     setLoadingText('Memindai Wajah...');
     
     try {
-      const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.5 });
+      // Pangkas kualitas ke 0.2 dan lompati pemrosesan lanjutan agar 3x lipat lebih cepat
+      const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.2, skipProcessing: true });
       // Inject base64 ke WebView
       webviewRef.current.injectJavaScript(`window.processBase64("${photo.base64}"); true;`);
     } catch (e) {
