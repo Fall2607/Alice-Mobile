@@ -15,12 +15,13 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { authService } from '../src/services/authService';
-import { Mail, Lock } from 'lucide-react-native';
+import { Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 
 export default function Login() {
   const router = useRouter();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
@@ -78,13 +79,16 @@ export default function Login() {
             <View style={styles.inputContainer}>
               <Lock color="#64748B" size={20} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { flex: 1 }]}
                 placeholder="Password"
                 placeholderTextColor="#94A3B8"
                 value={password}
                 onChangeText={setPassword}
-                secureTextEntry
+                secureTextEntry={!showPassword}
               />
+              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={{ padding: 10 }}>
+                {showPassword ? <EyeOff color="#94A3B8" size={20} /> : <Eye color="#94A3B8" size={20} />}
+              </TouchableOpacity>
             </View>
 
             <TouchableOpacity 
