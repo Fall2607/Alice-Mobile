@@ -144,13 +144,7 @@ export default function Home() {
     return timeStr;
   };
 
-  if (loading) {
-    return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color="#0EA5E9" />
-      </View>
-    );
-  }
+
 
   return (
     <ScrollView
@@ -185,74 +179,83 @@ export default function Home() {
       </View>
 
       <View style={styles.bottomContentTray}>
-        {/* Main Dashboard Card */}
-        <View style={styles.dashboardCard}>
-          <View style={styles.cardHeaderRow}>
-            <View>
-              <Text style={styles.cardTimeText}>{formatTime(time)} <Text style={styles.cardTimeWib}>WIB</Text></Text>
-              {todayShift ? (
-                <Text style={styles.cardDateText}>Jam kerja kamu pukul {todayShift.masuk} - {todayShift.keluar} WIB</Text>
-              ) : (
-                <Text style={styles.cardDateText}>{formatDate(time)}</Text>
-              )}
-            </View>
-            <TouchableOpacity>
-              <MoreHorizontal color="#94A3B8" size={24} />
-            </TouchableOpacity>
+        {loading ? (
+          <View style={{ height: 250, justifyContent: 'center', alignItems: 'center' }}>
+            <ActivityIndicator size="large" color="#0EA5E9" />
+            <Text style={{ marginTop: 12, color: '#64748B' }}>Menyiapkan Data...</Text>
           </View>
+        ) : (
+          <>
+            {/* Main Dashboard Card */}
+            <View style={styles.dashboardCard}>
+              <View style={styles.cardHeaderRow}>
+                <View>
+                  <Text style={styles.cardTimeText}>{formatTime(time)} <Text style={styles.cardTimeWib}>WIB</Text></Text>
+                  {todayShift ? (
+                    <Text style={styles.cardDateText}>Jam kerja kamu pukul {todayShift.masuk} - {todayShift.keluar} WIB</Text>
+                  ) : (
+                    <Text style={styles.cardDateText}>{formatDate(time)}</Text>
+                  )}
+                </View>
+                <TouchableOpacity>
+                  <MoreHorizontal color="#94A3B8" size={24} />
+                </TouchableOpacity>
+              </View>
 
-          <View style={styles.actionRowPrimary}>
-            <TouchableOpacity
-              style={[styles.btnAction, !todayStatus.jamMasuk ? styles.btnActive : styles.btnInactive]}
-              onPress={() => goToCamera('in')}
-              activeOpacity={0.8}
-              disabled={!!todayStatus.jamMasuk}
-            >
-              <Text style={!todayStatus.jamMasuk ? styles.btnTextActive : styles.btnTextInactive}>Masuk</Text>
-            </TouchableOpacity>
+              <View style={styles.actionRowPrimary}>
+                <TouchableOpacity
+                  style={[styles.btnAction, !todayStatus.jamMasuk ? styles.btnActive : styles.btnInactive]}
+                  onPress={() => goToCamera('in')}
+                  activeOpacity={0.8}
+                  disabled={!!todayStatus.jamMasuk}
+                >
+                  <Text style={!todayStatus.jamMasuk ? styles.btnTextActive : styles.btnTextInactive}>Masuk</Text>
+                </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.btnAction, todayStatus.jamMasuk && !todayStatus.jamKeluar ? styles.btnActive : styles.btnInactive]}
-              onPress={() => goToCamera('out')}
-              activeOpacity={0.8}
-              disabled={!todayStatus.jamMasuk || !!todayStatus.jamKeluar}
-            >
-              <Text style={todayStatus.jamMasuk && !todayStatus.jamKeluar ? styles.btnTextActive : styles.btnTextInactive}>Keluar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Status Absensi Hari Ini */}
-        <View style={styles.statusContainer}>
-          <Text style={styles.sectionTitle}>Status Hari Ini</Text>
-          <View style={styles.statusRow}>
-            {/* Check-In */}
-            <View style={[styles.statusBox, todayStatus.jamMasuk ? styles.statusBoxActive : null]}>
-              <Text style={styles.statusLabel}>Check-In</Text>
-              <View style={styles.statusValRow}>
-                {todayStatus.jamMasuk && (
-                  <View style={[styles.statusDot, { backgroundColor: todayStatus.menitTerlambat > 0 ? '#D97706' : '#10B981' }]} />
-                )}
-                <Text style={[styles.statusValue, todayStatus.jamMasuk ? styles.statusValueActive : null]}>
-                  {extractTime(todayStatus.jamMasuk)}
-                </Text>
+                <TouchableOpacity
+                  style={[styles.btnAction, todayStatus.jamMasuk && !todayStatus.jamKeluar ? styles.btnActive : styles.btnInactive]}
+                  onPress={() => goToCamera('out')}
+                  activeOpacity={0.8}
+                  disabled={!todayStatus.jamMasuk || !!todayStatus.jamKeluar}
+                >
+                  <Text style={todayStatus.jamMasuk && !todayStatus.jamKeluar ? styles.btnTextActive : styles.btnTextInactive}>Keluar</Text>
+                </TouchableOpacity>
               </View>
             </View>
 
-            {/* Check-Out */}
-            <View style={[styles.statusBox, todayStatus.jamKeluar ? styles.statusBoxActive : null]}>
-              <Text style={styles.statusLabel}>Check-Out</Text>
-              <View style={styles.statusValRow}>
-                {todayStatus.jamKeluar && (
-                  <View style={[styles.statusDot, { backgroundColor: '#10B981' }]} />
-                )}
-                <Text style={[styles.statusValue, todayStatus.jamKeluar ? styles.statusValueActive : null]}>
-                  {extractTime(todayStatus.jamKeluar)}
-                </Text>
+            {/* Status Absensi Hari Ini */}
+            <View style={styles.statusContainer}>
+              <Text style={styles.sectionTitle}>Status Hari Ini</Text>
+              <View style={styles.statusRow}>
+                {/* Check-In */}
+                <View style={[styles.statusBox, todayStatus.jamMasuk ? styles.statusBoxActive : null]}>
+                  <Text style={styles.statusLabel}>Check-In</Text>
+                  <View style={styles.statusValRow}>
+                    {todayStatus.jamMasuk && (
+                      <View style={[styles.statusDot, { backgroundColor: todayStatus.menitTerlambat > 0 ? '#D97706' : '#10B981' }]} />
+                    )}
+                    <Text style={[styles.statusValue, todayStatus.jamMasuk ? styles.statusValueActive : null]}>
+                      {extractTime(todayStatus.jamMasuk)}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Check-Out */}
+                <View style={[styles.statusBox, todayStatus.jamKeluar ? styles.statusBoxActive : null]}>
+                  <Text style={styles.statusLabel}>Check-Out</Text>
+                  <View style={styles.statusValRow}>
+                    {todayStatus.jamKeluar && (
+                      <View style={[styles.statusDot, { backgroundColor: '#10B981' }]} />
+                    )}
+                    <Text style={[styles.statusValue, todayStatus.jamKeluar ? styles.statusValueActive : null]}>
+                      {extractTime(todayStatus.jamKeluar)}
+                    </Text>
+                  </View>
+                </View>
               </View>
             </View>
-          </View>
-        </View>
+          </>
+        )}
 
         <View style={{ height: 40 }} />
       </View>
