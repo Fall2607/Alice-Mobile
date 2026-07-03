@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, StyleSheet, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { authService } from '../src/services/authService';
 
@@ -12,8 +12,7 @@ export default function Index() {
 
   const checkLoginStatus = async () => {
     try {
-      // Tunggu sedikit agar efek splash screen terasa
-      await new Promise(resolve => setTimeout(resolve, 500));
+
       
       const user = await authService.getUser();
       if (user) {
@@ -28,7 +27,11 @@ export default function Index() {
 
   return (
     <View style={styles.container}>
-      <ActivityIndicator size="large" color="#007AFF" />
+      <Image 
+        source={require('../assets/alice.png')} 
+        style={styles.logo} 
+        resizeMode="contain" 
+      />
     </View>
   );
 }
@@ -38,6 +41,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F1F5F9', // Mengikuti warna slate aplikasi
   },
+  logo: {
+    width: 120,
+    height: 120,
+    borderRadius: 30,
+  }
 });
