@@ -139,16 +139,17 @@ export default function CameraScreen() {
     }
   };
 
-  const submitToAPI = async (descriptor: number[], forceEarlyOut: boolean) => {
+  const submitToAPI = async (descriptor: number[], forceEarlyOut: boolean, isForcedType?: 'in' | 'out', forceNewCheckIn: boolean = false) => {
     setLoadingText('Mencocokkan Wajah di Server...');
     try {
-      const result = await attendanceService.verifyFace(descriptor, type as 'in'|'out', forceEarlyOut);
+      const actualType = isForcedType || (type as 'in' | 'out');
+      const result = await attendanceService.verifyFace(descriptor, actualType, forceEarlyOut, forceNewCheckIn);
       
       setLoading(false);
       Alert.alert(
         'Absensi Berhasil',
-        result.message || `Anda berhasil Check-${type === 'in' ? 'In' : 'Out'}.`,
-        [{ text: 'OK', onPress: () => router.replace({ pathname: '/(tabs)', params: { newAbsenType: type, newAbsenTime: result.user?.waktu, existingMasuk } }) }]
+        result.message || `Anda berhasil Check-${actualType === 'in' ? 'In' : 'Out'}.`,
+        [{ text: 'OK', onPress: () => router.replace({ pathname: '/(tabs)', params: { newAbsenType: actualType, newAbsenTime: result.user?.waktu, existingMasuk } }) }]
       );
     } catch (error: any) {
       setLoading(false);
@@ -156,6 +157,26 @@ export default function CameraScreen() {
       if (error.isEarly) {
         setEarlyMessage(error.message);
         setShowEarlyModal(true);
+      } else if (error.isUnresolvedCheckout) {
+        Alert.alert(
+          'Sesi Menggantung',
+          error.message || 'Anda memiliki sesi sebelumnya yang belum di-checkout.',
+          [
+            { text: 'Abaikan & Mulai Baru', onPress: () => {
+                if (lastDescriptor) {
+                  setLoading(true);
+                  submitToAPI(lastDescriptor, false, 'in', true);
+                }
+            }},
+            { text: 'Check-Out Sesi Lama', onPress: () => {
+                if (lastDescriptor) {
+                  setLoading(true);
+                  submitToAPI(lastDescriptor, false, 'out', false);
+                }
+            }},
+            { text: 'Batal', style: 'cancel' }
+          ]
+        );
       } else {
         Alert.alert('Gagal', error.message || 'Gagal memproses absensi.');
       }

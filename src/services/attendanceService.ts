@@ -3,7 +3,7 @@ import { authService } from './authService';
 
 export const attendanceService = {
   // Verifikasi wajah
-  async verifyFace(descriptor: number[], type: 'in' | 'out', forceEarlyOut: boolean = false) {
+  async verifyFace(descriptor: number[], type: 'in' | 'out', forceEarlyOut: boolean = false, forceNewCheckIn: boolean = false) {
     try {
       const user = await authService.getUser();
       const karyawan_id = user ? (user.karyawan_id || user.id) : undefined;
@@ -13,7 +13,7 @@ export const attendanceService = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ descriptor, type, forceEarlyOut, karyawan_id }),
+        body: JSON.stringify({ descriptor, type, forceEarlyOut, forceNewCheckIn, karyawan_id }),
       });
 
       const data = await response.json();
@@ -23,11 +23,15 @@ export const attendanceService = {
           // Lemparkan error spesifik untuk early checkout agar bisa ditangkap UI
           throw { isEarly: true, message: data.message };
         }
+        if (data.isUnresolvedCheckout) {
+          // Lemparkan error spesifik untuk unresolved checkout
+          throw { isUnresolvedCheckout: true, message: data.message };
+        }
         throw new Error(data.message || 'Gagal memverifikasi wajah');
       }
       return data;
     } catch (error: any) {
-      if (error.isEarly) throw error;
+      if (error.isEarly || error.isUnresolvedCheckout) throw error;
       throw new Error(error.message || 'Terjadi kesalahan jaringan.');
     }
   },
