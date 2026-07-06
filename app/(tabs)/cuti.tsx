@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CalendarDays, Send, ChevronDown, Calendar as CalendarIcon } from 'lucide-react-native';
+import { CalendarDays, Send, ChevronDown, Calendar as CalendarIcon, Clock } from 'lucide-react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { authService } from '../../src/services/authService';
+import { API_URL } from '../../src/config/api';
 
 export default function CutiScreen() {
   const [leaveForm, setLeaveForm] = useState({
@@ -11,6 +13,52 @@ export default function CutiScreen() {
     kategori: 'Cuti Tahunan',
     alasan: '',
   });
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [sisaCuti, setSisaCuti] = useState<number>(0);
+  const [historyCuti, setHistoryCuti] = useState<any[]>([]);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setIsLoading(true);
+      const userData = await authService.getUser();
+      if (userData) {
+        setUser(userData);
+        
+        // Ambil sisa cuti dari profil API
+        const profileRes = await fetch(`${API_URL}/karyawan/${userData.karyawan_id}`);
+        if (profileRes.ok) {
+          const profileData = await profileRes.json();
+          setSisaCuti(profileData.sisa_cuti || 0);
+        }
+
+        // Ambil riwayat cuti
+        await fetchHistory(userData.karyawan_id);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchHistory = async (karyawanId: string) => {
+    try {
+      const res = await fetch(`${API_URL}/cuti?karyawan_id=${karyawanId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setHistoryCuti(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const [showPickerStart, setShowPickerStart] = useState(false);
   const [showPickerEnd, setShowPickerEnd] = useState(false);
@@ -33,10 +81,40 @@ export default function CutiScreen() {
     }
   };
 
-  const handleSubmit = () => {
-    // Dummy submit
-    Alert.alert('Sukses', 'Pengajuan cuti berhasil dikirim.');
-    setLeaveForm({ tanggal_mulai: '', tanggal_selesai: '', kategori: 'Cuti Tahunan', alasan: '' });
+  const handleSubmit = async () => {
+    if (!leaveForm.tanggal_mulai || !leaveForm.tanggal_selesai || !leaveForm.alasan || !user) {
+      Alert.alert('Gagal', 'Mohon lengkapi semua field formulir.');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const payload = {
+        karyawan_id: user.karyawan_id,
+        tanggal_mulai: leaveForm.tanggal_mulai,
+        tanggal_selesai: leaveForm.tanggal_selesai,
+        alasan: `${leaveForm.kategori} - ${leaveForm.alasan}`
+      };
+
+      const res = await fetch(`${API_URL}/cuti`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Gagal mengajukan cuti.');
+
+      Alert.alert('Sukses', 'Pengajuan cuti berhasil dikirim.');
+      setLeaveForm({ ...leaveForm, alasan: '', tanggal_mulai: '', tanggal_selesai: '' });
+      
+      // Refresh data
+      loadData();
+    } catch (err: any) {
+      Alert.alert('Error', err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -49,7 +127,7 @@ export default function CutiScreen() {
               <Text style={styles.headerSubtitle}>Riwayat Pengajuan</Text>
             </View>
             <View style={styles.balanceBox}>
-              <Text style={styles.balanceValue}>12</Text>
+              <Text style={styles.balanceValue}>{isLoading ? '-' : sisaCuti}</Text>
               <Text style={styles.balanceLabel}>Hari</Text>
             </View>
           </View>
@@ -125,10 +203,56 @@ export default function CutiScreen() {
               />
             </View>
 
-            <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit} activeOpacity={0.8}>
-              <Send color="#FFFFFF" size={18} />
-              <Text style={styles.submitBtnText}>SUBMIT PERMOHONAN</Text>
+            <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit} activeOpacity={0.8} disabled={isSubmitting}>
+              {isSubmitting ? <ActivityIndicator color="#FFF" size="small" /> : <Send color="#FFFFFF" size={18} />}
+              <Text style={styles.submitBtnText}>{isSubmitting ? 'MEMPROSES...' : 'SUBMIT PERMOHONAN'}</Text>
             </TouchableOpacity>
+          </View>
+
+          {/* Riwayat Cuti */}
+          <View style={styles.historyContainer}>
+            <Text style={styles.sectionTitle}>Riwayat Anda</Text>
+            
+            {isLoading ? (
+              <ActivityIndicator size="large" color="#0EA5E9" style={{marginTop: 20}} />
+            ) : historyCuti.length === 0 ? (
+              <Text style={{textAlign: 'center', color: '#94A3B8', marginTop: 20}}>Belum ada riwayat cuti.</Text>
+            ) : (
+              historyCuti.map((item: any) => {
+                const statusStr = item.status || '';
+                const isApproved = statusStr === 'Disetujui';
+                const isRejected = statusStr === 'Ditolak';
+                
+                const splitAlasan = item.alasan ? item.alasan.split(" - ") : [];
+                const type = splitAlasan.length > 1 ? splitAlasan[0] : "Cuti";
+                const reason = splitAlasan.length > 1 ? splitAlasan[1] : item.alasan;
+
+                return (
+                  <View key={item.id} style={styles.historyCard}>
+                    <View style={styles.historyHeader}>
+                      <Text style={styles.historyDate}>
+                        {new Date(item.tanggal_mulai).toLocaleDateString("id-ID", { day: 'numeric', month: 'short' })} - {new Date(item.tanggal_selesai).toLocaleDateString("id-ID", { day: 'numeric', month: 'short' })}
+                      </Text>
+                      <View style={[styles.badgePending, isApproved && styles.badgeApproved, isRejected && {backgroundColor: '#FEF2F2'}]}>
+                        <Text style={[styles.badgeTextPending, isApproved && styles.badgeTextApproved, isRejected && {color: '#EF4444'}]}>
+                          {item.status}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.historyType}>{type}</Text>
+                    <Text style={styles.historyReason} numberOfLines={2}>{reason}</Text>
+                    {item.nama_approver && (
+                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8}}>
+                        <Clock size={10} color="#94A3B8" />
+                        <Text style={{fontSize: 10, color: '#94A3B8', fontWeight: 'bold', textTransform: 'uppercase'}}>
+                          Diperbarui oleh: {item.nama_approver}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })
+            )}
           </View>
 
           <View style={{ height: 40 }} />

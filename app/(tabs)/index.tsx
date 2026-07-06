@@ -85,17 +85,28 @@ export default function Home() {
         });
       }
 
-      // Ambil absensi hari ini jika ada
-      const absensiHariIni = history.find((h: any) => {
-        const recordDate = new Date(h.tanggal).toISOString().split('T')[0];
-        return recordDate === todayStr;
-      });
+      // Cari absensi TERAKHIR
+      let absensiAktif = null;
+      if (history.length > 0) {
+        const lastRecord = history[0];
+        const recordDate = new Date(lastRecord.tanggal).toISOString().split('T')[0];
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
 
-      if (absensiHariIni) {
+        // Jika record terakhir adalah hari ini, atau kemarin tapi belum checkout (Shift Malam)
+        if (recordDate === todayStr) {
+           absensiAktif = lastRecord;
+        } else if (recordDate === yesterdayStr && lastRecord.jam_keluar === null) {
+           absensiAktif = lastRecord;
+        }
+      }
+
+      if (absensiAktif) {
         setTodayStatus({
-          jamMasuk: absensiHariIni.jam_masuk || null,
-          jamKeluar: absensiHariIni.jam_keluar || null,
-          menitTerlambat: absensiHariIni.menit_terlambat || 0,
+          jamMasuk: absensiAktif.jam_masuk || null,
+          jamKeluar: absensiAktif.jam_keluar || null,
+          menitTerlambat: absensiAktif.menit_terlambat || 0,
         });
       } else {
         setTodayStatus({ jamMasuk: null, jamKeluar: null, menitTerlambat: 0 });
