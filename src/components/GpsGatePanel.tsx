@@ -146,7 +146,18 @@ export default function GpsGatePanel({ gps, onCancel }: Props) {
             </Text>
           </TouchableOpacity>
         </View>
-      ) : null}
+      ) : (
+        <View style={styles.actionGroup}>
+          <TouchableOpacity
+            style={styles.secondaryBtn}
+            onPress={gps.retry}
+            activeOpacity={0.8}
+          >
+            <RefreshCw size={15} color={COLORS.textSecondary} />
+            <Text style={styles.secondaryBtnText}>Segarkan Sinyal GPS</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {onCancel && (
         <TouchableOpacity

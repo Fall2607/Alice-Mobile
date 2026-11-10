@@ -129,7 +129,7 @@ export default function CameraScreen() {
   const router = useRouter();
   const { type, existingMasuk } = useLocalSearchParams(); // 'in' atau 'out'
   const [permission, requestPermission] = useCameraPermissions();
-  const gps = useGpsGate(true);
+  const gps = useGpsGate(Boolean(permission?.granted));
   const gpsUnlocked = gps.isReady && gps.inArea;
 
   const [loading, setLoading] = useState(false);

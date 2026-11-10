@@ -36,8 +36,9 @@ export default function Home() {
   const [time, setTime] = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(!(newAbsenType && newAbsenTime));
+  const [isHomeFocused, setIsHomeFocused] = useState(true);
 
-  const gps = useGpsGate(true);
+  const gps = useGpsGate(isHomeFocused);
 
   const [todayStatus, setTodayStatus] = useState<{
     jamMasuk: string | null;
@@ -75,7 +76,11 @@ export default function Home() {
 
   useFocusEffect(
     useCallback(() => {
+      setIsHomeFocused(true);
       loadData();
+      return () => {
+        setIsHomeFocused(false);
+      };
     }, [newAbsenType, newAbsenTime])
   );
 

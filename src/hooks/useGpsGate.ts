@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, AppStateStatus } from 'react-native';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import * as Location from 'expo-location';
 import {
   ABSENSI_GEOFENCE,
@@ -28,21 +28,81 @@ export type GpsGateState = {
   getLatestPosition: () => GeoLocationResult | null;
 };
 
+// Cache lintas layar (agar saat pindah dari Beranda ke Kamera tidak perlu menunggu lock GPS dari awal)
+let sharedLastPosition: { loc: GeoLocationResult; timestamp: number } | null =
+  null;
+const SHARED_CACHE_MAX_AGE_MS = 2 * 60 * 1000; // 2 menit
+
+function getValidSharedPosition(): GeoLocationResult | null {
+  if (!sharedLastPosition) return null;
+  if (Date.now() - sharedLastPosition.timestamp <= SHARED_CACHE_MAX_AGE_MS) {
+    return sharedLastPosition.loc;
+  }
+  return null;
+}
+
+function setValidSharedPosition(loc: GeoLocationResult) {
+  sharedLastPosition = {
+    loc,
+    timestamp: Date.now(),
+  };
+}
+
+// Helper timeout untuk mencegah Promise menggantung di Android
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('GPS_TIMEOUT'));
+    }, ms);
+    promise
+      .then((val) => {
+        clearTimeout(timer);
+        resolve(val);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 /**
- * Memantau lokasi GPS perangkat secara real-time (watchPositionAsync).
- * Memastikan GPS aktif, izin diberikan, dan jarak ke RSU Avisena dihitung dengan Haversine.
+ * Memantau lokasi GPS perangkat secara real-time.
+ * Dirancang tahan-macet untuk Android APK (indoor/outdoor) maupun iOS.
  */
 export function useGpsGate(enabled: boolean = true): GpsGateState {
-  const [status, setStatus] = useState<GpsStatus>('checking');
-  const [position, setPosition] = useState<GeoLocationResult | null>(null);
+  const cachedInitial = getValidSharedPosition();
+
+  const [status, setStatus] = useState<GpsStatus>(
+    cachedInitial ? 'ready' : 'checking'
+  );
+  const [position, setPosition] = useState<GeoLocationResult | null>(
+    cachedInitial
+  );
   const [errorMessage, setErrorMessage] = useState('');
   const [attempt, setAttempt] = useState(0);
 
-  const positionRef = useRef<GeoLocationResult | null>(null);
+  const positionRef = useRef<GeoLocationResult | null>(cachedInitial);
   const watchSubRef = useRef<Location.LocationSubscription | null>(null);
+  const isRequestingPermRef = useRef<boolean>(false);
+
+  const applyPosition = useCallback((coords: Location.LocationObjectCoords) => {
+    const loc: GeoLocationResult = {
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      accuracy: coords.accuracy,
+    };
+    positionRef.current = loc;
+    setValidSharedPosition(loc);
+    setPosition(loc);
+    setStatus('ready');
+    setErrorMessage('');
+  }, []);
 
   const retry = useCallback(() => {
-    setStatus('checking');
+    if (!positionRef.current) {
+      setStatus('checking');
+    }
     setErrorMessage('');
     setAttempt((a) => a + 1);
   }, []);
@@ -53,25 +113,47 @@ export function useGpsGate(enabled: boolean = true): GpsGateState {
 
   useEffect(() => {
     let isMounted = true;
+    let checkingTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
     const cleanupWatcher = () => {
       if (watchSubRef.current) {
-        watchSubRef.current.remove();
+        try {
+          watchSubRef.current.remove();
+        } catch {}
         watchSubRef.current = null;
+      }
+      if (checkingTimeoutId) {
+        clearTimeout(checkingTimeoutId);
+        checkingTimeoutId = null;
       }
     };
 
     if (!enabled) {
       cleanupWatcher();
-      positionRef.current = null;
-      setPosition(null);
-      setStatus('checking');
-      setErrorMessage('');
       return;
+    }
+
+    // Jika sudah ada posisi valid di cache lintas-layar, langsung gunakan
+    const cached = getValidSharedPosition();
+    if (cached && !positionRef.current) {
+      positionRef.current = cached;
+      setPosition(cached);
+      setStatus('ready');
+      setErrorMessage('');
     }
 
     const startWatching = async () => {
       cleanupWatcher();
+
+      // Safety timer: jika dalam 10 detik belum dapat titik sama sekali, jangan biarkan spinner menggantung selamanya
+      checkingTimeoutId = setTimeout(() => {
+        if (isMounted && !positionRef.current) {
+          setStatus('timeout');
+          setErrorMessage(
+            'Sinyal GPS belum merespons. Pastikan GPS aktif dan tekan "Coba Lagi".'
+          );
+        }
+      }, 10000);
 
       try {
         // 1. Cek apakah layanan lokasi perangkat (GPS) aktif
@@ -87,10 +169,15 @@ export function useGpsGate(enabled: boolean = true): GpsGateState {
           return;
         }
 
-        // 2. Minta izin lokasi foreground
-        const { status: permStatus } =
-          await Location.requestForegroundPermissionsAsync();
-        if (permStatus !== 'granted') {
+        // 2. Cek / minta izin lokasi foreground
+        isRequestingPermRef.current = true;
+        let permResult = await Location.getForegroundPermissionsAsync();
+        if (permResult.status !== 'granted') {
+          permResult = await Location.requestForegroundPermissionsAsync();
+        }
+        isRequestingPermRef.current = false;
+
+        if (permResult.status !== 'granted') {
           if (!isMounted) return;
           positionRef.current = null;
           setPosition(null);
@@ -101,44 +188,66 @@ export function useGpsGate(enabled: boolean = true): GpsGateState {
           return;
         }
 
-        // 3. Ambil posisi cepat awal jika ada last known atau current position
+        // Di Android, pastikan Network Provider (Google Location Accuracy) menyala jika memungkinkan
+        if (Platform.OS === 'android') {
+          Location.enableNetworkProviderAsync().catch(() => {});
+        }
+
+        // 3. Ambil posisi cepat dari Last Known Position (tanpa batas 15 detik yang terlalu ketat di Android)
         try {
           const lastKnown = await Location.getLastKnownPositionAsync({
-            maxAge: 15000,
+            maxAge: 300000, // terima cache OS hingga 5 menit untuk initial lock cepat
           });
-          if (lastKnown && isMounted && !positionRef.current) {
-            const initialLoc: GeoLocationResult = {
-              latitude: lastKnown.coords.latitude,
-              longitude: lastKnown.coords.longitude,
-              accuracy: lastKnown.coords.accuracy,
-            };
-            positionRef.current = initialLoc;
-            setPosition(initialLoc);
-            setStatus('ready');
-            setErrorMessage('');
+          if (lastKnown && isMounted) {
+            applyPosition(lastKnown.coords);
           }
         } catch {
           // Abaikan jika gagal ambil last known
         }
 
-        // 4. Pantau lokasi secara berkelanjutan
+        // 4. Ambil posisi aktif saat ini dengan akurasi Balanced terlebih dahulu (sangat cepat di Android indoor/Wi-Fi)
+        if (!positionRef.current) {
+          try {
+            const currentBalanced = await withTimeout(
+              Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Balanced,
+              }),
+              5000
+            );
+            if (currentBalanced && isMounted) {
+              applyPosition(currentBalanced.coords);
+            }
+          } catch {
+            // Jika Balanced gagal/timeout, coba High dengan timeout 5 detik
+            try {
+              const currentHigh = await withTimeout(
+                Location.getCurrentPositionAsync({
+                  accuracy: Location.Accuracy.High,
+                }),
+                5000
+              );
+              if (currentHigh && isMounted) {
+                applyPosition(currentHigh.coords);
+              }
+            } catch {
+              // Lanjut ke watchPositionAsync
+            }
+          }
+        }
+
+        // 5. Pantau lokasi secara berkelanjutan (distanceInterval: 0 agar tetap update meski user berdiri diam di Android)
         const sub = await Location.watchPositionAsync(
           {
-            accuracy: Location.Accuracy.High,
-            timeInterval: 4000,
-            distanceInterval: 5,
+            accuracy:
+              Platform.OS === 'android'
+                ? Location.Accuracy.Balanced
+                : Location.Accuracy.High,
+            timeInterval: 3000,
+            distanceInterval: 0,
           },
           (pos) => {
             if (!isMounted) return;
-            const loc: GeoLocationResult = {
-              latitude: pos.coords.latitude,
-              longitude: pos.coords.longitude,
-              accuracy: pos.coords.accuracy,
-            };
-            positionRef.current = loc;
-            setPosition(loc);
-            setStatus('ready');
-            setErrorMessage('');
+            applyPosition(pos.coords);
           }
         );
 
@@ -148,11 +257,10 @@ export function useGpsGate(enabled: boolean = true): GpsGateState {
           sub.remove();
         }
       } catch (err: any) {
+        isRequestingPermRef.current = false;
         if (!isMounted) return;
-        if (positionRef.current) return; // Pertahankan posisi terakhir bila hanya gangguan sesaat
+        if (positionRef.current) return; // Pertahankan posisi terakhir bila sudah ada
 
-        positionRef.current = null;
-        setPosition(null);
         setStatus('timeout');
         setErrorMessage(
           'Sinyal GPS belum didapat. Pastikan GPS aktif dan berada di area dengan sinyal baik.'
@@ -166,15 +274,19 @@ export function useGpsGate(enabled: boolean = true): GpsGateState {
       isMounted = false;
       cleanupWatcher();
     };
-  }, [enabled, attempt]);
+  }, [enabled, attempt, applyPosition]);
 
-  // Saat user kembali ke aplikasi dari Settings HP, cek ulang otomatis
+  // Saat user kembali ke aplikasi dari Settings HP, cek ulang otomatis (abaikan jika baru selesai dialog permission)
   useEffect(() => {
     if (!enabled) return;
     const subscription = AppState.addEventListener(
       'change',
       (nextAppState: AppStateStatus) => {
-        if (nextAppState === 'active' && !positionRef.current) {
+        if (
+          nextAppState === 'active' &&
+          !positionRef.current &&
+          !isRequestingPermRef.current
+        ) {
           silentRetry();
         }
       }
@@ -182,14 +294,17 @@ export function useGpsGate(enabled: boolean = true): GpsGateState {
     return () => subscription.remove();
   }, [enabled, silentRetry]);
 
-  // Jika GPS mati / timeout, cek ulang otomatis tiap 5 detik
+  // Jika GPS mati / timeout, cek ulang otomatis tiap 6 detik
   useEffect(() => {
     if (!enabled || (status !== 'unavailable' && status !== 'timeout')) return;
-    const timer = setInterval(silentRetry, 5000);
+    const timer = setInterval(silentRetry, 6000);
     return () => clearInterval(timer);
   }, [enabled, status, silentRetry]);
 
-  const getLatestPosition = useCallback(() => positionRef.current, []);
+  const getLatestPosition = useCallback(
+    () => positionRef.current || getValidSharedPosition(),
+    []
+  );
 
   const distance = position
     ? getDistanceFromGeofence(position.latitude, position.longitude)
@@ -210,4 +325,3 @@ export function useGpsGate(enabled: boolean = true): GpsGateState {
     getLatestPosition,
   };
 }
-
