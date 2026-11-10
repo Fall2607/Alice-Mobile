@@ -1,16 +1,37 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { CalendarDays, Send, ChevronDown, Calendar as CalendarIcon, Clock } from 'lucide-react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TextInput,
+  TouchableOpacity,
+  Alert,
+  Platform,
+  ActivityIndicator,
+} from 'react-native';
+import {
+  CalendarDays,
+  Send,
+  Calendar as CalendarIcon,
+  Clock,
+  Info,
+} from 'lucide-react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { authService } from '../../src/services/authService';
 import { API_URL } from '../../src/config/api';
+import { COLORS } from '../../src/config/theme';
+
+const CATEGORIES = [
+  { value: 'Tahunan', label: 'Cuti Tahunan' },
+  { value: 'Izin Penting', label: 'Izin Penting' },
+];
 
 export default function CutiScreen() {
   const [leaveForm, setLeaveForm] = useState({
     tanggal_mulai: '',
     tanggal_selesai: '',
-    kategori: 'Cuti Tahunan',
+    kategori: 'Tahunan',
     alasan: '',
   });
 
@@ -19,6 +40,11 @@ export default function CutiScreen() {
   const [user, setUser] = useState<any>(null);
   const [sisaCuti, setSisaCuti] = useState<number>(0);
   const [historyCuti, setHistoryCuti] = useState<any[]>([]);
+
+  const [showPickerStart, setShowPickerStart] = useState(false);
+  const [showPickerEnd, setShowPickerEnd] = useState(false);
+  const [dateStart, setDateStart] = useState(new Date());
+  const [dateEnd, setDateEnd] = useState(new Date());
 
   useEffect(() => {
     loadData();
@@ -30,16 +56,15 @@ export default function CutiScreen() {
       const userData = await authService.getUser();
       if (userData) {
         setUser(userData);
-        
-        // Ambil sisa cuti dari profil API
-        const profileRes = await fetch(`${API_URL}/karyawan/${userData.karyawan_id}`);
+        const kId = userData.karyawan_id || userData.id;
+
+        const profileRes = await fetch(`${API_URL}/karyawan/${kId}`);
         if (profileRes.ok) {
           const profileData = await profileRes.json();
-          setSisaCuti(profileData.sisa_cuti || 0);
+          setSisaCuti(profileData.sisa_cuti ?? 0);
         }
 
-        // Ambil riwayat cuti
-        await fetchHistory(userData.karyawan_id);
+        await fetchHistory(kId);
       }
     } catch (err) {
       console.error(err);
@@ -53,23 +78,26 @@ export default function CutiScreen() {
       const res = await fetch(`${API_URL}/cuti?karyawan_id=${karyawanId}`);
       if (res.ok) {
         const data = await res.json();
-        setHistoryCuti(data);
+        setHistoryCuti(Array.isArray(data) ? data : []);
       }
     } catch (err) {
       console.error(err);
     }
   };
 
-  const [showPickerStart, setShowPickerStart] = useState(false);
-  const [showPickerEnd, setShowPickerEnd] = useState(false);
-  const [dateStart, setDateStart] = useState(new Date());
-  const [dateEnd, setDateEnd] = useState(new Date());
-
   const onChangeStart = (event: any, selectedDate?: Date) => {
     setShowPickerStart(Platform.OS === 'ios');
     if (selectedDate) {
       setDateStart(selectedDate);
-      setLeaveForm({ ...leaveForm, tanggal_mulai: selectedDate.toISOString().split('T')[0] });
+      const ymd = selectedDate.toISOString().split('T')[0];
+      setLeaveForm((prev) => ({
+        ...prev,
+        tanggal_mulai: ymd,
+        tanggal_selesai:
+          prev.tanggal_selesai && prev.tanggal_selesai < ymd
+            ? ymd
+            : prev.tanggal_selesai,
+      }));
     }
   };
 
@@ -77,76 +105,195 @@ export default function CutiScreen() {
     setShowPickerEnd(Platform.OS === 'ios');
     if (selectedDate) {
       setDateEnd(selectedDate);
-      setLeaveForm({ ...leaveForm, tanggal_selesai: selectedDate.toISOString().split('T')[0] });
+      setLeaveForm((prev) => ({
+        ...prev,
+        tanggal_selesai: selectedDate.toISOString().split('T')[0],
+      }));
     }
   };
 
+  const getJumlahHari = (): number => {
+    if (!leaveForm.tanggal_mulai || !leaveForm.tanggal_selesai) return 0;
+    const s = new Date(leaveForm.tanggal_mulai);
+    const e = new Date(leaveForm.tanggal_selesai);
+    const diff = Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+    return diff > 0 ? diff : 0;
+  };
+
+  const jumlahHari = getJumlahHari();
+
   const handleSubmit = async () => {
-    if (!leaveForm.tanggal_mulai || !leaveForm.tanggal_selesai || !leaveForm.alasan || !user) {
-      Alert.alert('Gagal', 'Mohon lengkapi semua field formulir.');
+    if (
+      !leaveForm.tanggal_mulai ||
+      !leaveForm.tanggal_selesai ||
+      !leaveForm.alasan.trim() ||
+      !user
+    ) {
+      Alert.alert(
+        'Data Belum Lengkap',
+        'Pilih tanggal mulai, tanggal selesai, serta isi uraian alasan cuti.'
+      );
+      return;
+    }
+
+    if (jumlahHari <= 0) {
+      Alert.alert(
+        'Tanggal Tidak Valid',
+        'Tanggal selesai tidak boleh lebih awal dari tanggal mulai.'
+      );
+      return;
+    }
+
+    if (jumlahHari > 4) {
+      Alert.alert(
+        'Batas Maksimal Cuti',
+        'Pengajuan cuti mandiri maksimal 4 hari kerja dalam satu permohonan.'
+      );
+      return;
+    }
+
+    if (leaveForm.kategori === 'Tahunan' && jumlahHari > sisaCuti) {
+      Alert.alert(
+        'Sisa Cuti Tidak Cukup',
+        `Sisa jatah cuti tahunan Anda (${sisaCuti} hari) tidak mencukupi untuk ${jumlahHari} hari.`
+      );
       return;
     }
 
     try {
       setIsSubmitting(true);
+      const kId = user.karyawan_id || user.id;
+
+      // Hitung tanggal kembali (H+1 dari tanggal selesai)
+      const endObj = new Date(leaveForm.tanggal_selesai);
+      endObj.setDate(endObj.getDate() + 1);
+      const tanggalKembali = endObj.toISOString().split('T')[0];
+
       const payload = {
-        karyawan_id: user.karyawan_id,
+        karyawan_id: kId,
+        jenis_cuti: leaveForm.kategori,
         tanggal_mulai: leaveForm.tanggal_mulai,
         tanggal_selesai: leaveForm.tanggal_selesai,
-        alasan: `${leaveForm.kategori} - ${leaveForm.alasan}`
+        tanggal_kembali: tanggalKembali,
+        jumlah_hari: jumlahHari,
+        keterangan: leaveForm.alasan.trim(),
       };
 
       const res = await fetch(`${API_URL}/cuti`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Gagal mengajukan cuti.');
+      if (!res.ok)
+        throw new Error(data.message || 'Gagal mengajukan permohonan cuti.');
 
-      Alert.alert('Sukses', 'Pengajuan cuti berhasil dikirim.');
-      setLeaveForm({ ...leaveForm, alasan: '', tanggal_mulai: '', tanggal_selesai: '' });
-      
-      // Refresh data
+      Alert.alert(
+        'Permohonan Terkirim',
+        'Pengajuan cuti Anda telah dikirim kepada atasan untuk diverifikasi.'
+      );
+      setLeaveForm({
+        tanggal_mulai: '',
+        tanggal_selesai: '',
+        kategori: 'Tahunan',
+        alasan: '',
+      });
       loadData();
     } catch (err: any) {
-      Alert.alert('Error', err.message);
+      Alert.alert('Gagal Mengirim', err.message);
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const cleanReason = (raw: string) => {
+    if (!raw) return '-';
+    return raw
+      .replace(/\[DATES:.*?\]/g, '')
+      .replace(/\[DELEGASI:.*?\]/g, '')
+      .trim();
+  };
+
   return (
-    <View style={styles.container}>
-      <ScrollView style={styles.container}>
-        <View style={styles.topBackground}>
-          <View style={styles.headerRow}>
-            <View>
-              <Text style={styles.headerTitle}>Manajemen Cuti</Text>
-              <Text style={styles.headerSubtitle}>Riwayat Pengajuan</Text>
-            </View>
-            <View style={styles.balanceBox}>
-              <Text style={styles.balanceValue}>{isLoading ? '-' : sisaCuti}</Text>
-              <Text style={styles.balanceLabel}>Hari</Text>
-            </View>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ paddingBottom: 40 }}
+    >
+      {/* Header Navy */}
+      <View style={styles.header}>
+        <View style={styles.headerTopRow}>
+          <View>
+            <Text style={styles.headerSub}>LAYANAN MANDIRI</Text>
+            <Text style={styles.headerTitle}>Administrasi Cuti</Text>
+          </View>
+          <View style={styles.balanceBadge}>
+            <Text style={styles.balanceNumber}>
+              {isLoading ? '-' : sisaCuti}
+            </Text>
+            <Text style={styles.balanceLabel}>HARI TERSISA</Text>
           </View>
         </View>
+      </View>
 
-        <View style={styles.bottomContentTray}>
-          <View style={styles.formCard}>
-            <View style={styles.formHeader}>
-              <CalendarDays color="#1E293B" size={20} />
-              <Text style={styles.formTitle}>Formulir Cuti</Text>
+      <View style={styles.body}>
+        {/* Form Card */}
+        <View style={styles.formCard}>
+          <View style={styles.cardHeader}>
+            <View style={styles.accentBar} />
+            <Text style={styles.cardTitle}>Ajukan Cuti Baru</Text>
+          </View>
+
+          {/* Kategori Pills */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>JENIS PERMOHONAN</Text>
+            <View style={styles.categoryRow}>
+              {CATEGORIES.map((cat) => {
+                const active = leaveForm.kategori === cat.value;
+                return (
+                  <TouchableOpacity
+                    key={cat.value}
+                    style={[
+                      styles.categoryChip,
+                      active && styles.categoryChipActive,
+                    ]}
+                    onPress={() =>
+                      setLeaveForm({ ...leaveForm, kategori: cat.value })
+                    }
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.categoryChipText,
+                        active && styles.categoryChipTextActive,
+                      ]}
+                    >
+                      {cat.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
+          </View>
 
-            <View style={styles.inputGroup}>
+          {/* Tanggal Mulai & Selesai */}
+          <View style={styles.dateGrid}>
+            <View style={[styles.inputGroup, { flex: 1 }]}>
               <Text style={styles.inputLabel}>TANGGAL MULAI</Text>
-              <TouchableOpacity onPress={() => setShowPickerStart(true)} activeOpacity={0.7} style={styles.datePickerBtn}>
-                <Text style={[styles.datePickerText, !leaveForm.tanggal_mulai && styles.placeholderText]}>
-                  {leaveForm.tanggal_mulai || 'YYYY-MM-DD'}
+              <TouchableOpacity
+                onPress={() => setShowPickerStart(true)}
+                activeOpacity={0.7}
+                style={styles.datePickerBtn}
+              >
+                <Text
+                  style={[
+                    styles.datePickerText,
+                    !leaveForm.tanggal_mulai && styles.placeholderText,
+                  ]}
+                >
+                  {leaveForm.tanggal_mulai || 'Pilih Tanggal'}
                 </Text>
-                <CalendarIcon color="#94A3B8" size={20} />
+                <CalendarIcon color={COLORS.primary} size={16} />
               </TouchableOpacity>
               {showPickerStart && (
                 <DateTimePicker
@@ -158,13 +305,22 @@ export default function CutiScreen() {
               )}
             </View>
 
-            <View style={styles.inputGroup}>
+            <View style={[styles.inputGroup, { flex: 1 }]}>
               <Text style={styles.inputLabel}>TANGGAL SELESAI</Text>
-              <TouchableOpacity onPress={() => setShowPickerEnd(true)} activeOpacity={0.7} style={styles.datePickerBtn}>
-                <Text style={[styles.datePickerText, !leaveForm.tanggal_selesai && styles.placeholderText]}>
-                  {leaveForm.tanggal_selesai || 'YYYY-MM-DD'}
+              <TouchableOpacity
+                onPress={() => setShowPickerEnd(true)}
+                activeOpacity={0.7}
+                style={styles.datePickerBtn}
+              >
+                <Text
+                  style={[
+                    styles.datePickerText,
+                    !leaveForm.tanggal_selesai && styles.placeholderText,
+                  ]}
+                >
+                  {leaveForm.tanggal_selesai || 'Pilih Tanggal'}
                 </Text>
-                <CalendarIcon color="#94A3B8" size={20} />
+                <CalendarIcon color={COLORS.primary} size={16} />
               </TouchableOpacity>
               {showPickerEnd && (
                 <DateTimePicker
@@ -176,181 +332,223 @@ export default function CutiScreen() {
                 />
               )}
             </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>KATEGORI IZIN</Text>
-              <View style={styles.selectContainer}>
-                <TextInput
-                  style={styles.input}
-                  value={leaveForm.kategori}
-                  editable={false} // dummy select
-                />
-                <ChevronDown color="#94A3B8" size={20} style={styles.selectIcon} />
-              </View>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>CATATAN / KETERANGAN</Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                placeholder="Tuliskan alasan pengajuan cuti..."
-                placeholderTextColor="#94A3B8"
-                value={leaveForm.alasan}
-                onChangeText={(text) => setLeaveForm({ ...leaveForm, alasan: text })}
-                multiline
-                numberOfLines={3}
-                textAlignVertical="top"
-              />
-            </View>
-
-            <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit} activeOpacity={0.8} disabled={isSubmitting}>
-              {isSubmitting ? <ActivityIndicator color="#FFF" size="small" /> : <Send color="#FFFFFF" size={18} />}
-              <Text style={styles.submitBtnText}>{isSubmitting ? 'MEMPROSES...' : 'SUBMIT PERMOHONAN'}</Text>
-            </TouchableOpacity>
           </View>
 
-          {/* Riwayat Cuti */}
-          <View style={styles.historyContainer}>
-            <Text style={styles.sectionTitle}>Riwayat Anda</Text>
-            
-            {isLoading ? (
-              <ActivityIndicator size="large" color="#0EA5E9" style={{marginTop: 20}} />
-            ) : historyCuti.length === 0 ? (
-              <Text style={{textAlign: 'center', color: '#94A3B8', marginTop: 20}}>Belum ada riwayat cuti.</Text>
+          {/* Info Durasi */}
+          {jumlahHari > 0 && (
+            <View style={styles.durationBanner}>
+              <Info size={16} color={COLORS.primary} />
+              <Text style={styles.durationText}>
+                Total durasi permohonan:{' '}
+                <Text style={{ fontWeight: '800' }}>{jumlahHari} Hari</Text>{' '}
+                (Maks. 4 hari)
+              </Text>
+            </View>
+          )}
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>URAIAN ALASAN CUTI</Text>
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              placeholder="Tuliskan keterangan keperluan cuti Anda..."
+              placeholderTextColor={COLORS.textLight}
+              value={leaveForm.alasan}
+              onChangeText={(text) =>
+                setLeaveForm({ ...leaveForm, alasan: text })
+              }
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+            />
+          </View>
+
+          <TouchableOpacity
+            style={[styles.submitBtn, isSubmitting && { opacity: 0.7 }]}
+            onPress={handleSubmit}
+            activeOpacity={0.85}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color="#FFF" size="small" />
             ) : (
-              historyCuti.map((item: any) => {
-                const statusStr = item.status || '';
-                const isApproved = statusStr === 'Disetujui';
-                const isRejected = statusStr === 'Ditolak';
-                
-                const splitAlasan = item.alasan ? item.alasan.split(" - ") : [];
-                const type = splitAlasan.length > 1 ? splitAlasan[0] : "Cuti";
-                const reason = splitAlasan.length > 1 ? splitAlasan[1] : item.alasan;
-
-                return (
-                  <View key={item.id} style={styles.historyCard}>
-                    <View style={styles.historyHeader}>
-                      <Text style={styles.historyDate}>
-                        {new Date(item.tanggal_mulai).toLocaleDateString("id-ID", { day: 'numeric', month: 'short' })} - {new Date(item.tanggal_selesai).toLocaleDateString("id-ID", { day: 'numeric', month: 'short' })}
-                      </Text>
-                      <View style={[styles.badgePending, isApproved && styles.badgeApproved, isRejected && {backgroundColor: '#FEF2F2'}]}>
-                        <Text style={[styles.badgeTextPending, isApproved && styles.badgeTextApproved, isRejected && {color: '#EF4444'}]}>
-                          {item.status}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={styles.historyType}>{type}</Text>
-                    <Text style={styles.historyReason} numberOfLines={2}>{reason}</Text>
-                    {item.nama_approver && (
-                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8}}>
-                        <Clock size={10} color="#94A3B8" />
-                        <Text style={{fontSize: 10, color: '#94A3B8', fontWeight: 'bold', textTransform: 'uppercase'}}>
-                          Diperbarui oleh: {item.nama_approver}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                );
-              })
+              <Send color="#FFFFFF" size={16} />
             )}
+            <Text style={styles.submitBtnText}>
+              {isSubmitting ? 'Mengirim Permohonan...' : 'Ajukan Permohonan Cuti'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Riwayat Cuti */}
+        <View style={styles.historySection}>
+          <View style={styles.cardHeader}>
+            <View style={styles.accentBar} />
+            <Text style={styles.cardTitle}>Riwayat Pengajuan Cuti</Text>
           </View>
 
-          <View style={{ height: 40 }} />
+          {isLoading ? (
+            <ActivityIndicator
+              size="large"
+              color={COLORS.primary}
+              style={{ marginTop: 20 }}
+            />
+          ) : historyCuti.length === 0 ? (
+            <View style={styles.emptyBox}>
+              <CalendarDays size={28} color={COLORS.textLight} />
+              <Text style={styles.emptyText}>Belum ada riwayat cuti</Text>
+            </View>
+          ) : (
+            historyCuti.map((item: any) => {
+              const statusStr = item.status || 'Menunggu';
+              const isApproved = statusStr === 'Disetujui';
+              const isRejected = statusStr.includes('Ditolak');
+
+              return (
+                <View key={item.id} style={styles.historyCard}>
+                  <View style={styles.historyHeader}>
+                    <Text style={styles.historyType}>
+                      {item.jenis_cuti || 'Cuti Tahunan'} (
+                      {item.jumlah_hari || 1} Hari)
+                    </Text>
+                    <View
+                      style={[
+                        styles.badge,
+                        isApproved
+                          ? styles.badgeApproved
+                          : isRejected
+                          ? styles.badgeRejected
+                          : styles.badgePending,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.badgeText,
+                          isApproved
+                            ? styles.badgeTextApproved
+                            : isRejected
+                            ? styles.badgeTextRejected
+                            : styles.badgeTextPending,
+                        ]}
+                      >
+                        {statusStr}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.historyDate}>
+                    {new Date(item.tanggal_mulai).toLocaleDateString('id-ID', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })}{' '}
+                    —{' '}
+                    {new Date(item.tanggal_selesai).toLocaleDateString(
+                      'id-ID',
+                      {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      }
+                    )}
+                  </Text>
+
+                  <Text style={styles.historyReason} numberOfLines={2}>
+                    {cleanReason(item.alasan || item.keterangan)}
+                  </Text>
+                </View>
+              );
+            })
+          )}
         </View>
-      </ScrollView>
-    </View>
+      </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: COLORS.background,
   },
-  topBackground: {
-    backgroundColor: '#F0F9FF',
-    paddingHorizontal: 24,
-    paddingTop: 60,
-    paddingBottom: 80,
+  header: {
+    backgroundColor: COLORS.primaryDark,
+    paddingTop: 54,
+    paddingBottom: 48,
+    paddingHorizontal: 22,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
   },
-  headerRow: {
+  headerTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
   },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: '#0F172A',
-    letterSpacing: -0.5,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0EA5E9',
-    marginTop: 4,
-  },
-  balanceBox: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    alignItems: 'center',
-    shadowColor: '#0EA5E9',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: '#E0F2FE',
-  },
-  balanceValue: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: '#0EA5E9',
-    lineHeight: 26,
-  },
-  balanceLabel: {
+  headerSub: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#64748B',
-    textTransform: 'uppercase',
+    color: '#93C5FD',
+    letterSpacing: 1.2,
+    marginBottom: 4,
   },
-  bottomContentTray: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 36,
-    borderTopRightRadius: 36,
-    marginTop: -40,
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 40,
-    minHeight: 500,
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  balanceBadge: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  balanceNumber: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    fontVariant: ['tabular-nums'],
+  },
+  balanceLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#BAE6FD',
+    letterSpacing: 0.6,
+  },
+  body: {
+    paddingHorizontal: 20,
+    marginTop: -26,
   },
   formCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
-    padding: 24,
-    marginBottom: 30,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 4,
+    padding: 22,
+    marginBottom: 24,
     borderWidth: 1,
-    borderColor: '#F1F5F9',
+    borderColor: COLORS.border,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+    elevation: 3,
   },
-  formHeader: {
+  cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 24,
+    gap: 8,
+    marginBottom: 18,
   },
-  formTitle: {
-    fontSize: 18,
+  accentBar: {
+    width: 4,
+    height: 18,
+    borderRadius: 2,
+    backgroundColor: COLORS.primary,
+  },
+  cardTitle: {
+    fontSize: 16,
     fontWeight: '800',
-    color: '#1E293B',
-    textTransform: 'uppercase',
+    color: COLORS.textPrimary,
   },
   inputGroup: {
     marginBottom: 16,
@@ -358,57 +556,123 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#64748B',
-    marginBottom: 8,
-    letterSpacing: 1,
+    color: COLORS.textSecondary,
+    marginBottom: 6,
+    letterSpacing: 0.8,
+  },
+  categoryRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  categoryChip: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+  },
+  categoryChipActive: {
+    backgroundColor: COLORS.primarySoft,
+    borderColor: COLORS.primary,
+  },
+  categoryChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textSecondary,
+  },
+  categoryChipTextActive: {
+    color: COLORS.primary,
+    fontWeight: '800',
+  },
+  dateGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  datePickerBtn: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  datePickerText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  placeholderText: {
+    color: COLORS.textLight,
+    fontWeight: '500',
+  },
+  durationBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: COLORS.primarySoft,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: COLORS.primaryLight,
+  },
+  durationText: {
+    fontSize: 12,
+    color: COLORS.primaryDark,
+    fontWeight: '600',
   },
   input: {
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 14,
+    borderColor: COLORS.border,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#0F172A',
-  },
-  selectContainer: {
-    position: 'relative',
-  },
-  selectIcon: {
-    position: 'absolute',
-    right: 16,
-    top: 14,
+    color: COLORS.textPrimary,
   },
   textArea: {
-    height: 100,
-    paddingTop: 16,
+    height: 90,
+    paddingTop: 12,
   },
   submitBtn: {
-    backgroundColor: '#0F172A',
-    borderRadius: 16,
-    paddingVertical: 16,
+    backgroundColor: COLORS.primary,
+    borderRadius: 14,
+    paddingVertical: 15,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    marginTop: 10,
+    marginTop: 4,
   },
   submitBtnText: {
     color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  historySection: {
+    marginTop: 4,
+  },
+  emptyBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    gap: 8,
+  },
+  emptyText: {
     fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
-  historyContainer: {
-    marginTop: 10,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#1E293B',
-    marginBottom: 16,
+    fontWeight: '600',
+    color: COLORS.textLight,
   },
   historyCard: {
     backgroundColor: '#FFFFFF',
@@ -416,71 +680,56 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: COLORS.border,
   },
   historyHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
+  },
+  historyType: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+  },
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
   badgeApproved: {
-    backgroundColor: '#ECFDF5',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  badgeTextApproved: {
-    color: '#10B981',
-    fontSize: 10,
-    fontWeight: '800',
-    textTransform: 'uppercase',
+    backgroundColor: COLORS.successLight,
   },
   badgePending: {
-    backgroundColor: '#FFFBEB',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+    backgroundColor: COLORS.warningLight,
   },
-  badgeTextPending: {
-    color: '#F59E0B',
+  badgeRejected: {
+    backgroundColor: COLORS.dangerLight,
+  },
+  badgeText: {
     fontSize: 10,
     fontWeight: '800',
     textTransform: 'uppercase',
+  },
+  badgeTextApproved: {
+    color: COLORS.success,
+  },
+  badgeTextPending: {
+    color: COLORS.warning,
+  },
+  badgeTextRejected: {
+    color: COLORS.danger,
   },
   historyDate: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#64748B',
-  },
-  historyType: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 4,
+    color: COLORS.primary,
+    marginBottom: 6,
   },
   historyReason: {
-    fontSize: 13,
-    color: '#64748B',
-    fontWeight: '500',
-  },
-  datePickerBtn: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  datePickerText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0F172A',
-  },
-  placeholderText: {
-    color: '#94A3B8',
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
   },
 });

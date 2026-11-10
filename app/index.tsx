@@ -64,7 +64,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F1F5F9', // Mengikuti warna slate aplikasi
+    backgroundColor: '#05445E',
   },
   logo: {
     width: 140,

@@ -8,7 +8,11 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.alice.mobile"
+      "bundleIdentifier": "com.alice.mobile",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Aplikasi Alice membutuhkan akses lokasi (GPS) untuk memvalidasi area absensi RSU Avisena.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Aplikasi Alice membutuhkan akses lokasi (GPS) untuk memvalidasi area absensi RSU Avisena."
+      }
     },
     "android": {
       "package": "com.alice.mobile",
@@ -21,7 +25,9 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
     "web": {
@@ -34,6 +40,12 @@
         "expo-camera",
         {
           "cameraPermission": "Izinkan aplikasi Alice untuk mengakses kamera demi fitur absensi Face Recognition."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Izinkan aplikasi Alice mengakses lokasi perangkat Anda untuk memvalidasi radius area absensi RSU Avisena."
         }
       ],
       "@react-native-community/datetimepicker"

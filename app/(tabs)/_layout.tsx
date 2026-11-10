@@ -2,6 +2,7 @@ import { Tabs } from 'expo-router';
 import { ScanFace, CalendarDays, User, Palmtree, Clock } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Platform } from 'react-native';
+import { COLORS } from '../../src/config/theme';
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
@@ -9,31 +10,31 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#0EA5E9',
-        tabBarInactiveTintColor: '#94A3B8',
+        tabBarActiveTintColor: COLORS.primary,
+        tabBarInactiveTintColor: COLORS.textLight,
         tabBarStyle: {
           backgroundColor: '#FFFFFF',
           borderTopWidth: 1,
-          borderTopColor: '#F1F5F9',
-          height: Platform.OS === 'android' ? 70 + insets.bottom : 85,
-          paddingBottom: Platform.OS === 'android' ? 10 + insets.bottom : 25,
-          paddingTop: 10,
-          elevation: 10,
-          shadowColor: '#000',
+          borderTopColor: COLORS.border,
+          height: Platform.OS === 'android' ? 68 + insets.bottom : 84,
+          paddingBottom: Platform.OS === 'android' ? 10 + insets.bottom : 24,
+          paddingTop: 8,
+          elevation: 12,
+          shadowColor: '#0F172A',
           shadowOffset: { width: 0, height: -4 },
-          shadowOpacity: 0.05,
-          shadowRadius: 10,
+          shadowOpacity: 0.06,
+          shadowRadius: 12,
         },
         tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '600',
+          fontSize: 11,
+          fontWeight: '700',
         },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Absensi',
+          title: 'Presensi',
           tabBarIcon: ({ color, size }) => (
             <ScanFace color={color} size={size} />
           ),
@@ -69,7 +70,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
+          title: 'Profil',
           tabBarIcon: ({ color, size }) => (
             <User color={color} size={size} />
           ),

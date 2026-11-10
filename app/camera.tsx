@@ -1,10 +1,31 @@
-import { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Modal } from 'react-native';
+import { useState, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  SafeAreaView,
+} from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Clock, AlertTriangle, ShieldCheck } from 'lucide-react-native';
+import {
+  Clock,
+  ShieldCheck,
+  X,
+  MapPin,
+  ScanFace,
+  CheckCircle2,
+  AlertTriangle,
+} from 'lucide-react-native';
 import { WebView } from 'react-native-webview';
 import { attendanceService } from '../src/services/attendanceService';
+import { useGpsGate } from '../src/hooks/useGpsGate';
+import GpsGatePanel from '../src/components/GpsGatePanel';
+import { ABSENSI_GEOFENCE, formatDistance } from '../src/utils/geofence';
+import { COLORS } from '../src/config/theme';
 
 const faceApiHtml = `
 <!DOCTYPE html>
@@ -44,7 +65,7 @@ const faceApiHtml = `
       img.onload = async () => {
          try {
            const detection = await faceapi
-              .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.5 }))
+              .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.4 }))
               .withFaceLandmarks()
               .withFaceDescriptor();
               
@@ -68,11 +89,13 @@ export default function CameraScreen() {
   const router = useRouter();
   const { type, existingMasuk } = useLocalSearchParams(); // 'in' atau 'out'
   const [permission, requestPermission] = useCameraPermissions();
-  
+  const gps = useGpsGate(true);
+  const gpsUnlocked = gps.isReady && gps.inArea;
+
   const [loading, setLoading] = useState(false);
-  const [loadingText, setLoadingText] = useState('Menginisialisasi Kamera...');
+  const [loadingText, setLoadingText] = useState('Memverifikasi Biometrik...');
   const [modelsReady, setModelsReady] = useState(false);
-  
+
   // State untuk Early Checkout Modal
   const [showEarlyModal, setShowEarlyModal] = useState(false);
   const [earlyMessage, setEarlyMessage] = useState('');
@@ -82,17 +105,39 @@ export default function CameraScreen() {
   const webviewRef = useRef<any>(null);
 
   if (!permission) {
-    return <View style={styles.container}><ActivityIndicator color="#FFF" /></View>;
+    return (
+      <View style={styles.permissionContainer}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
   }
 
   if (!permission.granted) {
     return (
-      <View style={styles.container}>
-        <Text style={{ textAlign: 'center', color: '#FFF' }}>Aplikasi membutuhkan akses kamera untuk absensi.</Text>
-        <TouchableOpacity style={styles.btn} onPress={requestPermission}>
-          <Text style={styles.btnText}>Izinkan Kamera</Text>
-        </TouchableOpacity>
-      </View>
+      <SafeAreaView style={styles.permissionContainer}>
+        <View style={styles.permissionCard}>
+          <View style={styles.permissionIconWrap}>
+            <ScanFace size={36} color={COLORS.primary} />
+          </View>
+          <Text style={styles.permissionTitle}>Izin Kamera Diperlukan</Text>
+          <Text style={styles.permissionDesc}>
+            Aplikasi Alice memerlukan akses kamera depan untuk memverifikasi biometrik wajah Anda saat absensi.
+          </Text>
+          <TouchableOpacity
+            style={styles.permissionBtn}
+            onPress={requestPermission}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.permissionBtnText}>Izinkan Akses Kamera</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.permissionCancelBtn}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.permissionCancelText}>Batal</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -104,12 +149,14 @@ export default function CameraScreen() {
         setModelsReady(true);
       } else if (data.type === 'NO_FACE_DETECTED') {
         setLoading(false);
-        Alert.alert('Gagal', 'Wajah tidak terdeteksi di foto. Coba lagi.');
+        Alert.alert(
+          'Wajah Tidak Terdeteksi',
+          'Pastikan posisi wajah menghadap tegak ke arah kamera dengan pencahayaan yang cukup.'
+        );
       } else if (data.type === 'ERROR') {
         setLoading(false);
-        Alert.alert('Error AI', data.message);
+        Alert.alert('Gangguan Sistem AI', data.message);
       } else if (data.type === 'SUCCESS') {
-        // Descriptor didapat! Lanjut tembak API
         setLastDescriptor(data.descriptor);
         submitToAPI(data.descriptor, false);
       }
@@ -121,64 +168,130 @@ export default function CameraScreen() {
   const takePictureAndProcess = async () => {
     if (!cameraRef.current || !webviewRef.current) return;
     if (!modelsReady) {
-      Alert.alert('Mohon Tunggu', 'Sistem AI sedang memuat model pengenalan wajah...');
+      Alert.alert(
+        'Menyiapkan Biometrik',
+        'Sistem AI sedang memuat model pengenalan wajah. Silakan tunggu beberapa detik.'
+      );
       return;
     }
-    
+
+    const latestLoc = gps.getLatestPosition();
+    if (!latestLoc || !gps.inArea) {
+      Alert.alert(
+        'Lokasi Tidak Valid',
+        'Pastikan GPS aktif dan Anda berada di dalam area radius RSU Avisena.'
+      );
+      return;
+    }
+
     setLoading(true);
-    setLoadingText('Memindai Wajah...');
-    
+    setLoadingText('Memindai Biometrik Wajah...');
+
     try {
-      // Pangkas kualitas ke 0.2 dan lompati pemrosesan lanjutan agar 3x lipat lebih cepat
-      const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.2, skipProcessing: true });
-      // Inject base64 ke WebView
-      webviewRef.current.injectJavaScript(`window.processBase64("${photo.base64}"); true;`);
+      const photo = await cameraRef.current.takePictureAsync({
+        base64: true,
+        quality: 0.25,
+        skipProcessing: true,
+      });
+      webviewRef.current.injectJavaScript(
+        `window.processBase64("${photo.base64}"); true;`
+      );
     } catch (e) {
       setLoading(false);
-      Alert.alert('Error', 'Gagal mengambil foto.');
+      Alert.alert('Gagal', 'Tidak dapat mengambil gambar dari kamera.');
     }
   };
 
-  const submitToAPI = async (descriptor: number[], forceEarlyOut: boolean, isForcedType?: 'in' | 'out', forceNewCheckIn: boolean = false) => {
-    setLoadingText('Mencocokkan Wajah di Server...');
-    try {
-      const actualType = isForcedType || (type as 'in' | 'out');
-      const result = await attendanceService.verifyFace(descriptor, actualType, forceEarlyOut, forceNewCheckIn);
-      
+  const submitToAPI = async (
+    descriptor: number[],
+    forceEarlyOut: boolean,
+    isForcedType?: 'in' | 'out',
+    forceNewCheckIn: boolean = false
+  ) => {
+    const loc = gps.getLatestPosition();
+    if (!loc) {
       setLoading(false);
       Alert.alert(
-        'Absensi Berhasil',
-        result.message || `Anda berhasil Check-${actualType === 'in' ? 'In' : 'Out'}.`,
-        [{ text: 'OK', onPress: () => router.replace({ pathname: '/(tabs)', params: { newAbsenType: actualType, newAbsenTime: result.user?.waktu, existingMasuk } }) }]
+        'GPS Tidak Aktif',
+        'Lokasi perangkat tidak terdeteksi. Pastikan GPS Anda menyala.'
+      );
+      return;
+    }
+
+    setLoadingText('Memverifikasi Wajah & Area...');
+    try {
+      const actualType = isForcedType || (type as 'in' | 'out');
+      const result = await attendanceService.verifyFace({
+        descriptor,
+        type: actualType,
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        accuracy: loc.accuracy,
+        forceEarlyOut,
+        forceNewCheckIn,
+      });
+
+      setLoading(false);
+      Alert.alert(
+        'Presensi Berhasil',
+        result.message ||
+          `Anda berhasil Check-${actualType === 'in' ? 'In' : 'Out'}.`,
+        [
+          {
+            text: 'Selesai',
+            onPress: () =>
+              router.replace({
+                pathname: '/(tabs)',
+                params: {
+                  newAbsenType: actualType,
+                  newAbsenTime: result.user?.waktu,
+                  existingMasuk,
+                },
+              }),
+          },
+        ]
       );
     } catch (error: any) {
       setLoading(false);
-      
+
       if (error.isEarly) {
         setEarlyMessage(error.message);
         setShowEarlyModal(true);
       } else if (error.isUnresolvedCheckout) {
         Alert.alert(
-          'Sesi Menggantung',
-          error.message || 'Anda memiliki sesi sebelumnya yang belum di-checkout.',
+          'Sesi Sebelumnya Belum Selesai',
+          error.message ||
+            'Anda memiliki sesi shift sebelumnya yang belum dilakukan Check-Out.',
           [
-            { text: 'Abaikan & Mulai Baru', onPress: () => {
+            {
+              text: 'Mulai Check-In Baru',
+              onPress: () => {
                 if (lastDescriptor) {
                   setLoading(true);
                   submitToAPI(lastDescriptor, false, 'in', true);
                 }
-            }},
-            { text: 'Check-Out Sesi Lama', onPress: () => {
+              },
+            },
+            {
+              text: 'Check-Out Sesi Lama',
+              onPress: () => {
                 if (lastDescriptor) {
                   setLoading(true);
                   submitToAPI(lastDescriptor, false, 'out', false);
                 }
-            }},
-            { text: 'Batal', style: 'cancel' }
+              },
+            },
+            { text: 'Batal', style: 'cancel' },
           ]
         );
+      } else if (error.isOutOfArea) {
+        gps.retry();
+        Alert.alert('Di Luar Area Absensi', error.message);
       } else {
-        Alert.alert('Gagal', error.message || 'Gagal memproses absensi.');
+        Alert.alert(
+          'Verifikasi Gagal',
+          error.message || 'Gagal memproses presensi.'
+        );
       }
     }
   };
@@ -193,74 +306,146 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Hidden WebView untuk TFJS */}
+      {/* Hidden WebView untuk TFJS / Face-API */}
       <View style={{ height: 0, width: 0, opacity: 0 }}>
         <WebView
           ref={webviewRef}
-          source={{ html: faceApiHtml, baseUrl: 'https://cimahi.avisenahospitals.com' }}
+          source={{
+            html: faceApiHtml,
+            baseUrl: 'https://cimahi.avisenahospitals.com',
+          }}
           onMessage={handleWebViewMessage}
           javaScriptEnabled={true}
         />
       </View>
 
-      <CameraView 
-        style={styles.camera} 
-        facing="front"
-        ref={cameraRef}
-      />
-      
-      {/* Overlay menggunakan absolute positioning */}
-      <View style={[styles.overlay, StyleSheet.absoluteFill]}>
-        <View style={styles.scanArea} />
-        
-        <Text style={styles.instruction}>
-          {!modelsReady ? 'Menyiapkan Sistem AI...' : 'Posisikan wajah Anda di dalam kotak'}
-        </Text>
+      {!gpsUnlocked ? (
+        <SafeAreaView style={styles.gateWrapper}>
+          <View style={styles.gateHeaderBar}>
+            <View style={styles.gateHeaderLeft}>
+              <View style={styles.gateHeaderIcon}>
+                <ScanFace size={20} color={COLORS.primary} />
+              </View>
+              <View>
+                <Text style={styles.gateHeaderTitle}>Presensi Biometrik</Text>
+                <Text style={styles.gateHeaderSub}>
+                  Validasi Area Geofence & Wajah
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={styles.closeModalBtn}
+              onPress={() => router.back()}
+            >
+              <X size={20} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+          </View>
 
-        <View style={styles.bottomControls}>
-          <TouchableOpacity 
-            style={[styles.captureBtn, (loading || !modelsReady) && styles.captureBtnDisabled]} 
-            onPress={takePictureAndProcess}
-            disabled={loading || !modelsReady}
-          >
-            {loading ? (
-              <>
-                <ActivityIndicator color="#FFF" style={{ marginRight: 8 }} />
-                <Text style={styles.captureText}>{loadingText}</Text>
-              </>
-            ) : (
-              <>
-                <ShieldCheck color="#FFF" size={20} style={{ marginRight: 8 }} />
-                <Text style={styles.captureText}>Scan Wajah</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
+          <View style={styles.gateBody}>
+            <GpsGatePanel gps={gps} onCancel={() => router.back()} />
+          </View>
+        </SafeAreaView>
+      ) : (
+        <>
+          <CameraView style={styles.camera} facing="front" ref={cameraRef} />
+
+          {/* Overlay Kamera */}
+          <View style={[styles.overlay, StyleSheet.absoluteFill]}>
+            {/* Top Bar Info */}
+            <View style={styles.topCameraBar}>
+              <View style={styles.gpsStatusPill}>
+                <CheckCircle2 size={14} color="#10B981" />
+                <Text style={styles.gpsStatusText}>
+                  Dalam Area {ABSENSI_GEOFENCE.name} ({gps.formattedDistance})
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.cameraCloseBtn}
+                onPress={() => router.back()}
+              >
+                <X size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Area Frame Wajah */}
+            <View style={styles.scanFrameWrap}>
+              <View style={styles.scanArea}>
+                <View style={[styles.corner, styles.cornerTL]} />
+                <View style={[styles.corner, styles.cornerTR]} />
+                <View style={[styles.corner, styles.cornerBL]} />
+                <View style={[styles.corner, styles.cornerBR]} />
+              </View>
+
+              <View style={styles.instructionBadge}>
+                <Text style={styles.instructionText}>
+                  {!modelsReady
+                    ? 'Menyiapkan Mesin Biometrik AI...'
+                    : `Posisikan wajah untuk Check-${
+                        type === 'in' ? 'In' : 'Out'
+                      }`}
+                </Text>
+              </View>
+            </View>
+
+            {/* Bottom Controls */}
+            <View style={styles.bottomControls}>
+              <TouchableOpacity
+                style={[
+                  styles.captureBtn,
+                  type === 'out' && styles.captureBtnOut,
+                  (loading || !modelsReady) && styles.captureBtnDisabled,
+                ]}
+                onPress={takePictureAndProcess}
+                disabled={loading || !modelsReady}
+                activeOpacity={0.85}
+              >
+                {loading ? (
+                  <>
+                    <ActivityIndicator
+                      color="#FFF"
+                      style={{ marginRight: 10 }}
+                    />
+                    <Text style={styles.captureText}>{loadingText}</Text>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck
+                      color="#FFF"
+                      size={20}
+                      style={{ marginRight: 10 }}
+                    />
+                    <Text style={styles.captureText}>
+                      {type === 'in'
+                        ? 'Verifikasi Check-In'
+                        : 'Verifikasi Check-Out'}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </>
+      )}
 
       {/* Modal Early Checkout (Amber Warning) */}
-      <Modal
-        visible={showEarlyModal}
-        transparent={true}
-        animationType="fade"
-      >
+      <Modal visible={showEarlyModal} transparent={true} animationType="fade">
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <View style={styles.modalIconWrap}>
-              <Clock size={40} color="#F59E0B" />
+              <Clock size={36} color={COLORS.warning} />
             </View>
-            <Text style={styles.modalTitle}>Pulang Cepat?</Text>
+            <Text style={styles.modalTitle}>Pulang Lebih Awal?</Text>
             <Text style={styles.modalDesc}>{earlyMessage}</Text>
-            
+
             <View style={styles.modalActionRow}>
-              <TouchableOpacity 
-                style={styles.modalBtnCancel} 
+              <TouchableOpacity
+                style={styles.modalBtnCancel}
                 onPress={() => setShowEarlyModal(false)}
               >
                 <Text style={styles.modalBtnCancelText}>Batal</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.modalBtnConfirm} 
+              <TouchableOpacity
+                style={styles.modalBtnConfirm}
                 onPress={handleForceEarlyOut}
               >
                 <Text style={styles.modalBtnConfirmText}>Tetap Pulang</Text>
@@ -276,113 +461,296 @@ export default function CameraScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#0F172A',
+  },
+  permissionContainer: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  permissionCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 28,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  permissionIconWrap: {
+    width: 68,
+    height: 68,
+    borderRadius: 22,
+    backgroundColor: COLORS.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  permissionTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  permissionDesc: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  permissionBtn: {
+    width: '100%',
+    backgroundColor: COLORS.primary,
+    paddingVertical: 15,
+    borderRadius: 16,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  permissionBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  permissionCancelBtn: {
+    paddingVertical: 10,
+  },
+  permissionCancelText: {
+    color: COLORS.textMuted,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  gateWrapper: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  gateHeaderBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 48,
+    paddingBottom: 16,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderSubtle,
+  },
+  gateHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  gateHeaderIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: COLORS.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gateHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+  },
+  gateHeaderSub: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+  },
+  closeModalBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gateBody: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
   camera: {
     flex: 1,
   },
   overlay: {
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    justifyContent: 'space-between',
+    paddingTop: 52,
+    paddingBottom: 44,
+    paddingHorizontal: 20,
+  },
+  topCameraBar: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  gpsStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(15, 23, 42, 0.78)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.4)',
+  },
+  gpsStatusText: {
+    color: '#ECFDF5',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  cameraCloseBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(15, 23, 42, 0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  scanFrameWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scanArea: {
-    width: 280,
+    width: 265,
     height: 320,
+    borderRadius: 36,
     borderWidth: 2,
-    borderColor: '#0EA5E9', 
-    borderRadius: 24,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
     backgroundColor: 'transparent',
-    marginBottom: 40,
-    shadowColor: '#0EA5E9',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
+    position: 'relative',
+    marginBottom: 24,
   },
-  instruction: {
-    color: '#FFF',
-    fontSize: 16,
+  corner: {
+    position: 'absolute',
+    width: 34,
+    height: 34,
+    borderColor: COLORS.secondary,
+  },
+  cornerTL: {
+    top: -2,
+    left: -2,
+    borderTopWidth: 4,
+    borderLeftWidth: 4,
+    borderTopLeftRadius: 34,
+  },
+  cornerTR: {
+    top: -2,
+    right: -2,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+    borderTopRightRadius: 34,
+  },
+  cornerBL: {
+    bottom: -2,
+    left: -2,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+    borderBottomLeftRadius: 34,
+  },
+  cornerBR: {
+    bottom: -2,
+    right: -2,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+    borderBottomRightRadius: 34,
+  },
+  instructionBadge: {
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  instructionText: {
+    color: '#FFFFFF',
+    fontSize: 13,
     fontWeight: '700',
-    marginBottom: 40,
-    letterSpacing: 1,
+    letterSpacing: 0.3,
   },
   bottomControls: {
-    position: 'absolute',
-    bottom: 50,
     width: '100%',
     alignItems: 'center',
   },
   captureBtn: {
-    backgroundColor: '#0EA5E9',
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: COLORS.primary,
     flexDirection: 'row',
     paddingVertical: 18,
-    paddingHorizontal: 40,
-    borderRadius: 30,
+    paddingHorizontal: 28,
+    borderRadius: 20,
     elevation: 8,
-    shadowColor: '#0EA5E9',
+    shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.4,
-    shadowRadius: 10,
+    shadowRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  captureBtnOut: {
+    backgroundColor: COLORS.primaryDark,
+    shadowColor: COLORS.primaryDark,
   },
   captureBtnDisabled: {
-    backgroundColor: '#7DD3FC',
+    backgroundColor: '#64748B',
     elevation: 0,
     shadowOpacity: 0,
   },
   captureText: {
     color: '#FFF',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '800',
     textTransform: 'uppercase',
-  },
-  btn: {
-    backgroundColor: '#0EA5E9',
-    padding: 12,
-    borderRadius: 8,
-    margin: 20,
-    alignItems: 'center',
-  },
-  btnText: {
-    color: '#FFF',
-    fontWeight: 'bold',
+    letterSpacing: 0.8,
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
   modalContent: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 24,
+    borderRadius: 28,
+    padding: 26,
     alignItems: 'center',
     width: '100%',
-    maxWidth: 340,
+    maxWidth: 350,
     elevation: 10,
   },
   modalIconWrap: {
-    width: 80,
-    height: 80,
-    backgroundColor: '#FEF3C7',
-    borderRadius: 40,
+    width: 72,
+    height: 72,
+    backgroundColor: COLORS.warningLight,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
-    borderWidth: 4,
-    borderColor: '#FDE68A',
+    borderWidth: 2,
+    borderColor: COLORS.warningBorder,
   },
   modalTitle: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: '#1E293B',
+    fontSize: 20,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
     marginBottom: 8,
   },
   modalDesc: {
-    fontSize: 14,
-    color: '#64748B',
+    fontSize: 13,
+    color: COLORS.textMuted,
     textAlign: 'center',
     marginBottom: 24,
     lineHeight: 20,
@@ -395,28 +763,25 @@ const styles = StyleSheet.create({
   modalBtnCancel: {
     flex: 1,
     paddingVertical: 14,
-    borderRadius: 16,
+    borderRadius: 14,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
   },
   modalBtnCancelText: {
-    color: '#64748B',
+    color: COLORS.textSecondary,
     fontWeight: '800',
+    fontSize: 13,
   },
   modalBtnConfirm: {
     flex: 1,
     paddingVertical: 14,
-    borderRadius: 16,
-    backgroundColor: '#F59E0B',
+    borderRadius: 14,
+    backgroundColor: COLORS.warning,
     alignItems: 'center',
-    shadowColor: '#F59E0B',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
   },
   modalBtnConfirmText: {
     color: '#FFFFFF',
-    fontWeight: '900',
-  }
+    fontWeight: '800',
+    fontSize: 13,
+  },
 });
