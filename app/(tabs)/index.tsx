@@ -218,19 +218,18 @@ export default function Home() {
   const extractTime = (timeStr: string | null) => {
     if (!timeStr) return '--:--';
     try {
-      if (timeStr.includes('T')) {
-        const timePart = timeStr.substring(11, 16);
-        const [rawH, rawM] = timePart.split(':').map(Number);
-        if (!isNaN(rawH) && !isNaN(rawM)) {
-          const adjH = String((rawH + 7) % 24).padStart(2, '0');
-          const adjM = String(rawM).padStart(2, '0');
-          return `${adjH}:${adjM}`;
-        }
+      const normalized = timeStr.replace('.', ':');
+      if (normalized.includes('T')) {
+        return normalized.substring(11, 16);
       }
-      if (timeStr.includes(':')) {
-        return timeStr.substring(0, 5);
+      if (normalized.includes(' ')) {
+        const part = normalized.split(' ')[1];
+        return part ? part.substring(0, 5) : normalized.substring(0, 5);
       }
-      return timeStr;
+      if (normalized.includes(':')) {
+        return normalized.substring(0, 5);
+      }
+      return normalized;
     } catch {
       return '--:--';
     }

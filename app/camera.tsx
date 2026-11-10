@@ -31,21 +31,42 @@ const faceApiHtml = `
 <!DOCTYPE html>
 <html>
 <head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/dist/face-api.min.js"></script>
 </head>
-<body>
+<body style="margin:0;padding:0;background:#000;">
   <img id="img" style="display:none;" />
+  <canvas id="workCanvas" style="display:none;"></canvas>
   <script>
     let modelsLoaded = false;
     const MODEL_URL = "https://cimahi.avisenahospitals.com/models";
     
     async function loadModels() {
       try {
+        if (window.faceapi && faceapi.tf) {
+          try {
+            await faceapi.tf.setBackend('webgl');
+            await faceapi.tf.ready();
+          } catch(err) {
+            console.log('WebGL backend init notice:', err);
+          }
+        }
         await Promise.all([
           faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
           faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
           faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
         ]);
+
+        // Warmup ke-3 jaringan (Detector, Landmarks, dan ResNet Recognition) agar shader WebGL sudah terkompilasi penuh
+        try {
+          const dummy = document.getElementById('workCanvas');
+          dummy.width = 160;
+          dummy.height = 160;
+          await faceapi.detectSingleFace(dummy, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.4 }));
+          await faceapi.nets.faceLandmark68Net.detectLandmarks(dummy);
+          await faceapi.nets.faceRecognitionNet.computeFaceDescriptor(dummy);
+        } catch (_) {}
+
         modelsLoaded = true;
         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MODELS_LOADED' }));
       } catch(e) {
@@ -64,10 +85,29 @@ const faceApiHtml = `
       const img = document.getElementById('img');
       img.onload = async () => {
          try {
-           const detection = await faceapi
-              .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.4 }))
+           // Perkecil resolusi foto kamera (12MP+) ke canvas 360px agar ekstraksi Tensor 100x lebih ringan & instan
+           const workCanvas = document.getElementById('workCanvas');
+           const maxDim = 360;
+           const w = img.naturalWidth || img.width || maxDim;
+           const h = img.naturalHeight || img.height || maxDim;
+           const scale = Math.min(1, maxDim / Math.max(w, h));
+           workCanvas.width = Math.max(1, Math.round(w * scale));
+           workCanvas.height = Math.max(1, Math.round(h * scale));
+           const ctx = workCanvas.getContext('2d');
+           ctx.drawImage(img, 0, 0, workCanvas.width, workCanvas.height);
+
+           let detection = await faceapi
+              .detectSingleFace(workCanvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
               .withFaceLandmarks()
               .withFaceDescriptor();
+
+           // Failsafe jika wajah agak jauh
+           if (!detection) {
+              detection = await faceapi
+                .detectSingleFace(workCanvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 }))
+                .withFaceLandmarks()
+                .withFaceDescriptor();
+           }
               
            if (!detection) {
               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'NO_FACE_DETECTED' }));
@@ -306,8 +346,8 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Hidden WebView untuk TFJS / Face-API */}
-      <View style={{ height: 0, width: 0, opacity: 0 }}>
+      {/* Hidden WebView untuk TFJS / Face-API (diberi layout offscreen agar akselerasi WebGL GPU tetap aktif) */}
+      <View style={styles.hiddenWebView} pointerEvents="none">
         <WebView
           ref={webviewRef}
           source={{
@@ -316,6 +356,10 @@ export default function CameraScreen() {
           }}
           onMessage={handleWebViewMessage}
           javaScriptEnabled={true}
+          domStorageEnabled={true}
+          cacheEnabled={true}
+          androidHardwareAccelerationDisabled={false}
+          originWhitelist={['*']}
         />
       </View>
 
@@ -783,5 +827,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '800',
     fontSize: 13,
+  },
+  hiddenWebView: {
+    position: 'absolute',
+    top: -500,
+    left: -500,
+    width: 150,
+    height: 150,
+    opacity: 0.01,
   },
 });

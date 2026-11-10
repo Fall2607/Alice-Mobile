@@ -107,19 +107,18 @@ export default function JadwalScreen() {
   const formatTimeStr = (isoString: string) => {
     if (!isoString) return '--:--';
     try {
-      if (isoString.includes('T')) {
-        const timePart = isoString.substring(11, 16);
-        const [rawH, rawM] = timePart.split(':').map(Number);
-        if (!isNaN(rawH) && !isNaN(rawM)) {
-          const adjH = String((rawH + 7) % 24).padStart(2, '0');
-          const adjM = String(rawM).padStart(2, '0');
-          return `${adjH}:${adjM}`;
-        }
+      const normalized = isoString.replace('.', ':');
+      if (normalized.includes('T')) {
+        return normalized.substring(11, 16);
       }
-      if (isoString.includes(':')) {
-        return isoString.substring(0, 5);
+      if (normalized.includes(' ')) {
+        const part = normalized.split(' ')[1];
+        return part ? part.substring(0, 5) : normalized.substring(0, 5);
       }
-      return '--:--';
+      if (normalized.includes(':')) {
+        return normalized.substring(0, 5);
+      }
+      return normalized;
     } catch {
       return '--:--';
     }
